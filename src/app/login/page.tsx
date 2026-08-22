@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Store, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
@@ -126,13 +125,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <div className="pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
-            Need a merchant account?{' '}
-            <Link href="/signup" className="text-sky-600 font-semibold hover:underline">
-              Register shop
-            </Link>
-          </div>
         </div>
       </div>
     </div>
