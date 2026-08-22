@@ -1,6 +1,6 @@
 import { Db, ObjectId } from 'mongodb';
 import { COLLECTIONS } from '@/lib/db/mongodb';
-import { canDeleteMerchant, getEffectiveSubscription } from '@/lib/subscriptions';
+import { canDeleteMerchant, getEffectiveSubscription, type SubscriptionRecord } from '@/lib/subscriptions';
 
 type UserDoc = {
   _id: ObjectId;
@@ -32,10 +32,10 @@ export async function isMerchantDeletable(
 ): Promise<boolean> {
   if (user.role === 'admin') return false;
 
-  const subscriptions = await db
+  const subscriptions = (await db
     .collection(COLLECTIONS.SUBSCRIPTIONS)
     .find({ $or: [{ user_id: user._id }, { email: user.email }] })
-    .toArray();
+    .toArray()) as SubscriptionRecord[];
   const effectiveSub = getEffectiveSubscription(subscriptions);
 
   return canDeleteMerchant({

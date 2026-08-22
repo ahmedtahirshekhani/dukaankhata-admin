@@ -94,10 +94,11 @@ export function isPendingPaymentStatus(status?: string): boolean {
   return PENDING_PAYMENT_STATUSES.includes(status as (typeof PENDING_PAYMENT_STATUSES)[number]);
 }
 
-type SubscriptionRecord = {
+export type SubscriptionRecord = {
   status?: string;
   plan?: string;
   created_at?: Date | string;
+  expiry_date?: Date | string;
 };
 
 export function getEffectiveSubscription<T extends SubscriptionRecord>(subs: T[]): T | undefined {
