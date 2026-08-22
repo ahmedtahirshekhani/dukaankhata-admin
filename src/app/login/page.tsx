@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Store, ShieldCheck, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Store, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,11 +44,6 @@ export default function LoginPage() {
     }
   };
 
-  const fillAdminCredentials = () => {
-    setEmail('admin@dukaankhata.com');
-    setPassword('AdminSecurePass123!');
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden">
       {/* Soft Glow Background Accents */}
@@ -67,21 +62,6 @@ export default function LoginPage() {
 
         {/* Form Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xl space-y-6">
-          {/* Quick Fill Admin Button */}
-          <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-xs text-sky-800">
-              <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0" />
-              <span>Use pre-generated Admin credentials</span>
-            </div>
-            <button
-              type="button"
-              onClick={fillAdminCredentials}
-              className="text-xs font-semibold px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition"
-            >
-              Fill Admin
-            </button>
-          </div>
-
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center space-x-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
