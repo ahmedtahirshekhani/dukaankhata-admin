@@ -3,6 +3,7 @@ import { getDatabase, COLLECTIONS, toObjectId } from '@/lib/db/mongodb';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { ObjectId } from 'mongodb';
+import { isMerchantDeletable, purgeMerchantData } from '@/lib/admin/purge-user';
 
 async function checkAdmin() {
   const cookieStore = await cookies();
@@ -89,7 +90,7 @@ export async function PATCH(
   }
 }
 
-// DELETE USER COMPLETELY (FOR BLOCKED / SUSPENDED MERCHANTS)
+// DELETE USER COMPLETELY ((blocked or expired) and inactive 60+ days)
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -115,50 +116,31 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check all subscriptions matching user_id or email
-    const subs = await db.collection(COLLECTIONS.SUBSCRIPTIONS).find({
-      $or: [{ user_id: userObjectId }, { email: user.email }],
-    }).toArray();
+    if (user.role === 'admin') {
+      return NextResponse.json({ error: 'Admin accounts cannot be deleted.' }, { status: 400 });
+    }
 
-    const isUserStatusBlocked = ['suspended', 'blocked', 'login_blocked', 'inactive'].includes(
-      (user.status || '').toLowerCase()
-    );
+    const now = new Date();
 
-    const isSubBlocked = subs.some((s) =>
-      ['login_blocked', 'suspended', 'blocked', 'inactive'].includes((s.status || '').toLowerCase())
-    );
+    const deletable = await isMerchantDeletable(db, user as any, now);
 
-    const isBlocked = isUserStatusBlocked || isSubBlocked;
-
-    if (!isBlocked) {
+    if (!deletable) {
       return NextResponse.json(
-        { error: 'Only blocked or suspended merchants can be deleted. Please block the merchant first.' },
+        {
+          error:
+            'Only blocked or expired merchants inactive for more than 60 days can be deleted.',
+        },
         { status: 400 }
       );
     }
 
     const userEmail = user.email;
 
-    // Permanently purge user document and all associated data across collections
-    await Promise.all([
-      db.collection(COLLECTIONS.USERS).deleteOne({ _id: userObjectId }),
-      db.collection(COLLECTIONS.SUBSCRIPTIONS).deleteMany({
-        $or: [{ user_id: userObjectId }, { email: userEmail }],
-      }),
-      db.collection(COLLECTIONS.SHOPS).deleteMany({
-        $or: [{ owner_user_id: userObjectId }, { user_id: userObjectId }, { email: userEmail }],
-      }),
-      db.collection(COLLECTIONS.ORDERS).deleteMany({
-        $or: [{ user_id: userObjectId }, { merchant_id: userObjectId }],
-      }),
-      db.collection(COLLECTIONS.TRANSACTIONS).deleteMany({ user_id: userObjectId }),
-      db.collection(COLLECTIONS.PRODUCTS).deleteMany({ user_id: userObjectId }),
-      db.collection(COLLECTIONS.PARTIES).deleteMany({ user_id: userObjectId }),
-    ]);
+    await purgeMerchantData(db, userObjectId, userEmail);
 
     return NextResponse.json({
       success: true,
-      message: `Blocked merchant "${user.name}" (${userEmail}) and all associated data deleted permanently.`,
+      message: `Merchant "${user.name}" (${userEmail}) and all associated data deleted permanently.`,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

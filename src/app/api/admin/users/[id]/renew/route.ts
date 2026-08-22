@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS, toObjectId } from '@/lib/db/mongodb';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
+import {
+  addDays,
+  computeNextCycleEnd,
+  computeNextCycleStart,
+  getCycleDays,
+  getPlanAmount,
+  isPendingPaymentStatus,
+  type BillingCycle,
+} from '@/lib/subscriptions';
+import { formatDisplayDate } from '@/lib/format-date';
 import { ObjectId } from 'mongodb';
 
 export async function POST(
@@ -23,21 +33,21 @@ export async function POST(
     const db = await getDatabase();
     const { id } = await params;
 
-    let daysToAdd = 30;
-    let planToSet = 'pro';
+    let billingCycle: BillingCycle = 'monthly';
 
     try {
       const body = await request.json();
-      if (body.days) daysToAdd = parseInt(body.days, 10);
-      if (body.plan) planToSet = body.plan.toLowerCase();
-    } catch (e) {
+      if (body.billingCycle === 'monthly' || body.billingCycle === 'yearly') {
+        billingCycle = body.billingCycle;
+      }
+    } catch {
       // body optional
     }
 
     let userObjectId: ObjectId;
     try {
       userObjectId = toObjectId(id);
-    } catch (e) {
+    } catch {
       return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 });
     }
 
@@ -46,45 +56,120 @@ export async function POST(
       return NextResponse.json({ error: 'Merchant user not found in database' }, { status: 404 });
     }
 
-    // Find existing active or latest subscription in subscriptions collection
-    const existingSub = await db
-      .collection(COLLECTIONS.SUBSCRIPTIONS)
-      .findOne({ $or: [{ user_id: user._id }, { email: user.email }] }, { sort: { created_at: -1 } });
-
     const now = new Date();
-    let currentExpiry = existingSub?.expiry_date ? new Date(existingSub.expiry_date) : now;
-    if (currentExpiry < now) {
-      currentExpiry = new Date();
-    }
+    const cycleDays = getCycleDays(billingCycle);
+    const amount = getPlanAmount(billingCycle);
+    const planToSet = 'pro';
 
-    const newExpiry = new Date(currentExpiry.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+    const allSubs = await db
+      .collection(COLLECTIONS.SUBSCRIPTIONS)
+      .find({ $or: [{ user_id: user._id }, { email: user.email }] })
+      .sort({ created_at: -1 })
+      .toArray();
 
-    // Insert or update subscription record in real `subscriptions` collection
-    const subscriptionData = {
-      user_id: user._id,
-      email: user.email,
-      plan: planToSet,
-      status: 'active',
-      amount: planToSet === 'enterprise' ? 15000 : planToSet === 'pro' ? 5000 : 2500,
-      created_at: now,
-      activated_date: now,
-      expiry_date: newExpiry,
-      billing_cycle_start: now,
-      billing_cycle_end: newExpiry,
-      next_billing_date: newExpiry,
-      updated_at: now,
-    };
+    const pendingProSub = allSubs.find(
+      (s) => s.plan === 'pro' && isPendingPaymentStatus(s.status)
+    );
+    const activeProSub = allSubs.find((s) => s.plan === 'pro' && s.status === 'active');
+    const latestProSub = allSubs.find((s) => s.plan === 'pro');
+    const latestSub = allSubs[0];
 
-    if (existingSub) {
+    let resultSub: Record<string, unknown>;
+    let message: string;
+
+    if (pendingProSub) {
+      // Payment grace already extended dates — only activate, do not add more days.
       await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateOne(
-        { _id: existingSub._id },
-        { $set: subscriptionData }
+        { _id: pendingProSub._id },
+        { $set: { status: 'active', updated_at: now } }
       );
+
+      const expiry = new Date(pendingProSub.expiry_date);
+      resultSub = { ...pendingProSub, status: 'active' };
+      message = `Pro subscription activated for ${user.name} until ${formatDisplayDate(expiry)}`;
+    } else if (activeProSub) {
+      // Extend active pro from previous billing_cycle_end (not today + 30).
+      const prevEnd = new Date(activeProSub.billing_cycle_end || activeProSub.expiry_date);
+      const newStart = computeNextCycleStart(prevEnd, now);
+      const newEnd = computeNextCycleEnd(prevEnd, cycleDays, now);
+
+      const update = {
+        status: 'active',
+        amount,
+        billing_cycle: billingCycle,
+        billing_cycle_start: newStart,
+        billing_cycle_end: newEnd,
+        expiry_date: newEnd,
+        next_billing_date: newEnd,
+        updated_at: now,
+      };
+
+      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateOne(
+        { _id: activeProSub._id },
+        { $set: update }
+      );
+
+      resultSub = { ...activeProSub, ...update };
+      message = `Pro subscription extended for ${user.name} (${billingCycle}) until ${formatDisplayDate(newEnd)}`;
+    } else if (latestProSub) {
+      // Expired/inactive pro — extend the existing record in place.
+      const prevEnd = new Date(latestProSub.billing_cycle_end || latestProSub.expiry_date);
+      const newStart = computeNextCycleStart(prevEnd, now);
+      const newEnd = computeNextCycleEnd(prevEnd, cycleDays, now);
+
+      const update = {
+        status: 'active',
+        amount,
+        billing_cycle: billingCycle,
+        billing_cycle_start: newStart,
+        billing_cycle_end: newEnd,
+        expiry_date: newEnd,
+        next_billing_date: newEnd,
+        updated_at: now,
+      };
+
+      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateOne(
+        { _id: latestProSub._id },
+        { $set: update }
+      );
+
+      resultSub = { ...latestProSub, ...update };
+      message = `Pro subscription renewed for ${user.name} (${billingCycle}) until ${formatDisplayDate(newEnd)}`;
     } else {
-      await db.collection(COLLECTIONS.SUBSCRIPTIONS).insertOne(subscriptionData);
+      // First pro subscription (e.g. upgrade from trial) — create a new entry, keep trial history.
+      const newEnd = addDays(now, cycleDays);
+      const previousId = latestSub?._id;
+
+      const subscriptionData: Record<string, unknown> = {
+        user_id: user._id,
+        email: user.email,
+        plan: planToSet,
+        status: 'active',
+        amount,
+        billing_cycle: billingCycle,
+        created_at: now,
+        activated_date: now,
+        expiry_date: newEnd,
+        billing_cycle_start: now,
+        billing_cycle_end: newEnd,
+        next_billing_date: newEnd,
+        updated_at: now,
+      };
+
+      if (previousId) {
+        subscriptionData.previous_subscription_id = previousId;
+        subscriptionData.is_renewal = true;
+      }
+
+      const insertResult = await db.collection(COLLECTIONS.SUBSCRIPTIONS).insertOne(subscriptionData);
+      resultSub = { _id: insertResult.insertedId, ...subscriptionData };
+      message = `Pro subscription created for ${user.name} (${billingCycle}) until ${formatDisplayDate(newEnd)}`;
     }
 
-    // Also update user status in `users` collection to active
+    const expiresAt = new Date(
+      (resultSub.expiry_date || resultSub.billing_cycle_end) as Date | string
+    );
+
     await db.collection(COLLECTIONS.USERS).updateOne(
       { _id: user._id },
       {
@@ -93,7 +178,7 @@ export async function POST(
           subscription: {
             plan: planToSet,
             status: 'active',
-            expiresAt: newExpiry,
+            expiresAt,
           },
           updated_at: now,
         },
@@ -102,8 +187,8 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: `Subscription successfully renewed for ${user.name} (${planToSet.toUpperCase()}) for ${daysToAdd} days until ${newExpiry.toLocaleDateString()}`,
-      subscription: subscriptionData,
+      message,
+      subscription: resultSub,
     });
   } catch (error: any) {
     console.error('Subscription renewal error:', error);
