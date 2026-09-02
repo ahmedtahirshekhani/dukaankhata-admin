@@ -141,6 +141,7 @@ export function canDeleteMerchant(input: {
   role?: string;
   userStatus?: string;
   subStatus?: string;
+  subPlan?: string;
   expiresAt?: Date | string | null;
   lastActivity?: Date | string | null;
   createdAt?: Date | string | null;
@@ -148,18 +149,37 @@ export function canDeleteMerchant(input: {
 }): boolean {
   if (input.role === 'admin') return false;
 
+  // Login Blocked / Suspended merchants can always be deleted
+  if (isUserBlocked(input.userStatus, input.subStatus)) {
+    return true;
+  }
+
   const now = input.now ?? new Date();
-  const blockedOrExpired =
-    isUserBlocked(input.userStatus, input.subStatus) ||
-    isSubscriptionExpired(input.expiresAt, input.subStatus, now);
-
-  if (!blockedOrExpired) return false;
-
   const reference = input.lastActivity || input.createdAt;
   if (!reference) return false;
 
+  const refDate = new Date(reference);
+  if (isNaN(refDate.getTime())) return false;
+
   const daysSinceActivity = Math.floor(
-    (now.getTime() - new Date(reference).getTime()) / (1000 * 60 * 60 * 24)
+    (now.getTime() - refDate.getTime()) / (1000 * 60 * 60 * 24)
   );
-  return daysSinceActivity > 60;
+
+  const subPlan = (input.subPlan || 'trial').toLowerCase();
+  const subStatus = (input.subStatus || '').toLowerCase();
+
+  const isExpired = isSubscriptionExpired(input.expiresAt, input.subStatus, now);
+  const isTrial = subPlan === 'trial' || subStatus === 'trial' || subStatus === 'in_trial';
+
+  // Expired Trial plan with > 7 days of inactivity
+  if (isTrial && isExpired && daysSinceActivity > 7) {
+    return true;
+  }
+
+  // Expired account with > 60 days of inactivity
+  if (isExpired && daysSinceActivity > 60) {
+    return true;
+  }
+
+  return false;
 }

@@ -1,7 +1,7 @@
 import { COLLECTIONS } from '@/lib/db/mongodb';
 import { PENDING_PAYMENT_STATUSES } from '@/lib/subscriptions';
 
-export type UsersSortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'createdAt';
+export type UsersSortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt';
 
 export interface UsersQueryParams {
   search: string;
@@ -21,6 +21,7 @@ const SORT_FIELD_MAP: Record<UsersSortField, string> = {
   shopName: 'resolvedShopName',
   expiry: 'expiresAt',
   revenue: 'monthlyRevenue',
+  orders: 'totalTransactions',
   createdAt: 'createdAt',
 };
 
@@ -305,6 +306,7 @@ export function parseUsersQueryParams(searchParams: URLSearchParams): UsersQuery
     'shopName',
     'expiry',
     'revenue',
+    'orders',
     'createdAt',
   ];
 

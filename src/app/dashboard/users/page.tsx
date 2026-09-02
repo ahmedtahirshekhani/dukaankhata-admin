@@ -53,7 +53,7 @@ interface User {
   createdAt: string;
 }
 
-type SortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'createdAt';
+type SortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt';
 
 const PRO_BILLING_OPTIONS: { label: string; cycle: BillingCycle; days: number; amount: number }[] = [
   { label: 'Monthly', cycle: 'monthly', days: getCycleDays('monthly'), amount: PRO_MONTHLY_AMOUNT },
@@ -315,6 +315,7 @@ export default function UsersManagementPage() {
       role: user.role,
       userStatus: user.status,
       subStatus: user.subscription?.status,
+      subPlan: user.subscription?.plan,
       expiresAt: user.subscription?.expiresAt,
       lastActivity: user.lastActivity,
       createdAt: user.createdAt,
@@ -440,7 +441,9 @@ export default function UsersManagementPage() {
                       ? 'Subscription Expiry'
                       : sortBy === 'revenue'
                         ? 'Store Revenue'
-                        : sortBy}
+                        : sortBy === 'orders'
+                          ? 'Total Orders'
+                          : sortBy}
             </span>
           </div>
         </div>
@@ -587,7 +590,13 @@ export default function UsersManagementPage() {
                   <span>Store Revenue</span>
                   {renderSortIcon('revenue')}
                 </th>
-                <th className="py-3.5 px-5 text-right">Orders</th>
+                <th
+                  onClick={() => handleSort('orders')}
+                  className="py-3.5 px-5 text-right cursor-pointer hover:text-slate-900 transition"
+                >
+                  <span>Orders</span>
+                  {renderSortIcon('orders')}
+                </th>
                 <th className="py-3.5 px-5 text-center">Actions</th>
               </tr>
             </thead>
@@ -658,6 +667,7 @@ export default function UsersManagementPage() {
                               )}
                             </div>
                             <div className="text-slate-500 text-[11px] mt-0.5">{user.email}</div>
+                            <div className="text-slate-400 font-mono text-[10px] mt-0.5">ID: {user._id}</div>
                           </div>
                         </div>
                       </td>
@@ -1017,6 +1027,10 @@ export default function UsersManagementPage() {
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Email:</span>
                 <span className="font-mono text-slate-700">{userToDelete.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">User ID:</span>
+                <span className="font-mono text-slate-600 text-[10px]">{userToDelete._id}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Shop Name:</span>

@@ -128,7 +128,7 @@ export async function DELETE(
       return NextResponse.json(
         {
           error:
-            'Only blocked or expired merchants inactive for more than 60 days can be deleted.',
+            'Merchant is not eligible for deletion. (Must be Login Blocked, an expired trial plan with > 7 days of inactivity, or expired with > 60 days of inactivity).',
         },
         { status: 400 }
       );

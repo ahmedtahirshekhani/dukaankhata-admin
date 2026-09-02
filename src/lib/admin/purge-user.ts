@@ -42,6 +42,7 @@ export async function isMerchantDeletable(
     role: user.role,
     userStatus: user.status,
     subStatus: effectiveSub?.status,
+    subPlan: effectiveSub?.plan || (user as any).subscription?.plan,
     expiresAt: effectiveSub?.expiry_date,
     lastActivity: getUserLastActivity(user),
     createdAt: user.created_at || user.createdAt,
