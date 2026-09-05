@@ -45,6 +45,7 @@ export const COLLECTIONS = {
   PARTIES: 'parties',
   PRODUCTS: 'products',
   WAITLIST: 'waitlist',
+  LEADS_DELETED: 'leads_deleted',
 } as const;
 
 export function toObjectId(id: string | ObjectId): ObjectId {

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
+  UserX,
   Settings,
   Store,
   LogOut,
@@ -48,6 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { label: 'Executive Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { label: 'Users & Subscriptions', href: '/dashboard/users', icon: Users },
+    { label: 'Deleted Leads', href: '/dashboard/deleted-leads', icon: UserX },
     { label: 'System Configuration', href: '/dashboard/settings', icon: Settings },
   ];
 
@@ -148,6 +150,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
               {pathname === '/dashboard' && 'Executive Analytics'}
               {pathname === '/dashboard/users' && 'Users & Subscriptions Directory'}
+              {pathname === '/dashboard/deleted-leads' && 'Deleted Leads Archive'}
               {pathname === '/dashboard/settings' && 'System Configuration'}
             </h1>
             <p className="text-xs text-slate-500">

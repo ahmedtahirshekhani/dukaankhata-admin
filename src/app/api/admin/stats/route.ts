@@ -45,6 +45,7 @@ export async function GET() {
     });
 
     const waitlistCount = await db.collection(COLLECTIONS.WAITLIST).countDocuments();
+    const deletedLeadsCount = await db.collection(COLLECTIONS.LEADS_DELETED).countDocuments();
 
     return NextResponse.json({
       success: true,
@@ -57,6 +58,7 @@ export async function GET() {
         expiredSubscriptions,
         trialSubscriptions,
         waitlistCount,
+        deletedLeadsCount,
       },
     });
   } catch (error: any) {
