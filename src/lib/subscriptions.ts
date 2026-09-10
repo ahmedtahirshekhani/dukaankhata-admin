@@ -41,8 +41,7 @@ export function computeNextCycleEnd(billingCycleEnd: Date, cycleDays: number, no
   if (now <= billingCycleEnd) {
     return addDays(billingCycleEnd, cycleDays);
   }
-  const daysPassed = daysBetween(billingCycleEnd, now);
-  return addDays(now, cycleDays - daysPassed);
+  return addDays(now, cycleDays);
 }
 
 export function computeNextCycleStart(billingCycleEnd: Date, now: Date): Date {

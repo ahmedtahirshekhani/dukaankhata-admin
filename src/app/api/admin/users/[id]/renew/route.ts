@@ -78,17 +78,30 @@ export async function POST(
     let message: string;
 
     if (pendingProSub) {
-      // Payment grace already extended dates — only activate, do not add more days.
+      const prevEnd = new Date(pendingProSub.billing_cycle_end || pendingProSub.expiry_date);
+      const newStart = computeNextCycleStart(prevEnd, now);
+      const newEnd = computeNextCycleEnd(prevEnd, cycleDays, now);
+
+      const update = {
+        status: 'active',
+        amount,
+        billing_cycle: billingCycle,
+        billing_cycle_start: newStart,
+        billing_cycle_end: newEnd,
+        expiry_date: newEnd,
+        next_billing_date: newEnd,
+        updated_at: now,
+      };
+
       await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateOne(
         { _id: pendingProSub._id },
-        { $set: { status: 'active', updated_at: now } }
+        { $set: update }
       );
 
-      const expiry = new Date(pendingProSub.expiry_date);
-      resultSub = { ...pendingProSub, status: 'active' };
-      message = `Pro subscription activated for ${user.name} until ${formatDisplayDate(expiry)}`;
+      resultSub = { ...pendingProSub, ...update };
+      message = `Pro subscription activated for ${user.name} (${billingCycle}) until ${formatDisplayDate(newEnd)}`;
     } else if (activeProSub) {
-      // Extend active pro from previous billing_cycle_end (not today + 30).
+      // Renew active pro from today (expiry = current date + cycleDays).
       const prevEnd = new Date(activeProSub.billing_cycle_end || activeProSub.expiry_date);
       const newStart = computeNextCycleStart(prevEnd, now);
       const newEnd = computeNextCycleEnd(prevEnd, cycleDays, now);
