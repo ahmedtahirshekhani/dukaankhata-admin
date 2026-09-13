@@ -46,6 +46,7 @@ export const COLLECTIONS = {
   PRODUCTS: 'products',
   WAITLIST: 'waitlist',
   LEADS_DELETED: 'leads_deleted',
+  WHATSAPP_LOGS: 'whatsapp_logs',
 } as const;
 
 export function toObjectId(id: string | ObjectId): ObjectId {

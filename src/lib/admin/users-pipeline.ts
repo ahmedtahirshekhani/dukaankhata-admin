@@ -321,6 +321,6 @@ export function parseUsersQueryParams(searchParams: URLSearchParams): UsersQuery
       : 'lastActivity',
     sortOrder: searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc',
     page: Math.max(1, parseInt(searchParams.get('page') || '1', 10)),
-    limit: Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20', 10))),
+    limit: Math.min(5000, Math.max(1, parseInt(searchParams.get('limit') || '20', 10))),
   };
 }

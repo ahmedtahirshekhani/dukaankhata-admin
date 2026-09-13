@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   Users,
   Search,
@@ -22,6 +23,7 @@ import {
   ChevronRight,
   AlertTriangle,
   AlertCircle,
+  MessageSquare,
 } from 'lucide-react';
 import {
   canDeleteMerchant,
@@ -510,6 +512,13 @@ export default function UsersManagementPage() {
             {selectedIds.size === 1 ? '' : 's'} selected on this page
           </div>
           <div className="flex items-center space-x-2">
+            <Link
+              href={`/dashboard/whatsapp?userId=${Array.from(selectedIds).join(',')}`}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-xs transition"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>WhatsApp Selected</span>
+            </Link>
             <button
               onClick={() => setSelectedIds(new Set())}
               className="px-3 py-1.5 bg-white border border-rose-200 text-rose-700 rounded-lg text-xs font-semibold hover:bg-rose-100 transition"
@@ -785,6 +794,15 @@ export default function UsersManagementPage() {
                       {/* Actions */}
                       <td className="py-3.5 px-5">
                         <div className="flex items-center justify-center space-x-1.5">
+                          {/* WHATSAPP BUTTON */}
+                          <Link
+                            href={`/dashboard/whatsapp?userId=${user._id}`}
+                            title="Send WhatsApp message to user"
+                            className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                          </Link>
+
                           {/* RENEW BUTTON */}
                           <button
                             onClick={() => {
