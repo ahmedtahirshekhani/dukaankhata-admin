@@ -26,6 +26,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { formatDisplayDate } from '@/lib/format-date';
+import { formatWhatsAppPhone } from '@/lib/whatsapp/phone-utils';
 
 interface User {
   _id: string;
@@ -136,7 +137,13 @@ export default function WhatsAppAdminPage() {
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState<{ total: number; sent: number; fail: number } | null>(null);
   const [sendResultMsg, setSendResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [testPhone, setTestPhone] = useState('03352575725');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [todaySentCount, setTodaySentCount] = useState<number>(0);
+  const [dailyLimit, setDailyLimit] = useState<number>(10);
 
   // Fetch WhatsApp status
   const fetchStatus = useCallback(async () => {
@@ -146,6 +153,8 @@ export default function WhatsAppAdminPage() {
       if (data.success && data.state) {
         setWaState(data.state);
         if (data.logs) setWaLogs(data.logs);
+        if (typeof data.todaySentCount === 'number') setTodaySentCount(data.todaySentCount);
+        if (typeof data.dailyLimit === 'number') setDailyLimit(data.dailyLimit);
       }
     } catch (err) {
       console.error('Error fetching WA status:', err);
@@ -290,7 +299,7 @@ export default function WhatsAppAdminPage() {
 
   const targetRecipients = getFilteredRecipients();
   const validRecipients = targetRecipients.filter(
-    (u) => (u.phone || (u as any).whatsapp || (u as any).mobile || '').replace(/\D/g, '').length >= 9
+    (u) => formatWhatsAppPhone(u.phone || (u as any).whatsapp || (u as any).mobile || '').length >= 10
   );
 
   // Toggle user selection
@@ -383,14 +392,83 @@ export default function WhatsAppAdminPage() {
     }
   };
 
+  // Send Single Test WhatsApp Message to any 03xx phone number
+  const handleSendTestMessage = async () => {
+    if (waState.status !== 'connected') {
+      setTestResult({
+        type: 'error',
+        text: 'WhatsApp is not connected. Please scan the QR code first.',
+      });
+      return;
+    }
+
+    const cleanPhone = formatWhatsAppPhone(testPhone);
+    if (!cleanPhone || cleanPhone.length < 10) {
+      setTestResult({
+        type: 'error',
+        text: 'Please enter a valid Pakistani phone number (e.g. 03352575725 or +923352575725).',
+      });
+      return;
+    }
+
+    if (!message.trim()) {
+      setTestResult({ type: 'error', text: 'Please enter a message to send.' });
+      return;
+    }
+
+    setSendingTest(true);
+    setTestResult(null);
+
+    try {
+      const res = await fetch('/api/admin/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipients: [
+            {
+              phone: testPhone,
+              name: 'Test Merchant',
+              shopName: 'Test Shop',
+              email: 'test@dukaankhata.app',
+              plan: 'Pro',
+              expiresAt: '2026-12-31',
+            },
+          ],
+          message,
+          forceSend: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.sentCount > 0) {
+        setTestResult({
+          type: 'success',
+          text: `Test message successfully delivered to +${cleanPhone}!`,
+        });
+      } else {
+        const errDetail = data.results?.[0]?.error || data.error || 'Failed to send test message.';
+        setTestResult({
+          type: 'error',
+          text: `Error: ${errDetail}`,
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        type: 'error',
+        text: err.message || 'Failed to send test message.',
+      });
+    } finally {
+      setSendingTest(false);
+      fetchStatus();
+    }
+  };
+
   // Generate direct wa.me link for first selected or single recipient
   const handleOpenDirectWeb = (user?: User) => {
     const target = user || validRecipients[0];
     if (!target) return;
-    const phone = (target.phone || (target as any).whatsapp || '').replace(/\D/g, '');
-    let cleanPhone = phone;
-    if (cleanPhone.startsWith('0')) cleanPhone = `92${cleanPhone.slice(1)}`;
-    if (cleanPhone.length === 10) cleanPhone = `92${cleanPhone}`;
+    const rawPhone = target.phone || (target as any).whatsapp || (target as any).mobile || '';
+    const cleanPhone = formatWhatsAppPhone(rawPhone);
 
     const formattedMsg = message
       .replace(/\{name\}/gi, target.name || '')
@@ -914,8 +992,8 @@ export default function WhatsAppAdminPage() {
                   <div className="space-y-2">
                     {targetRecipients.slice(0, showAllPreview ? 30 : 5).map((u, idx) => {
                       const rawPh = u.phone || (u as any).whatsapp || (u as any).mobile || '';
-                      const cleanPh = rawPh.replace(/\D/g, '');
-                      const hasPhone = cleanPh.length >= 9;
+                      const cleanPh = formatWhatsAppPhone(rawPh);
+                      const hasPhone = cleanPh.length >= 10;
 
                       return (
                         <div
@@ -1033,6 +1111,56 @@ export default function WhatsAppAdminPage() {
               </p>
             </div>
 
+            {/* Test WhatsApp Message Section */}
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Smartphone className="w-4 h-4 text-emerald-700" />
+                  <span className="text-xs font-extrabold text-emerald-900">
+                    Send Test WhatsApp Message (Any 03xx Number)
+                  </span>
+                </div>
+                <span className="text-[11px] text-emerald-700 font-medium">Instant Single Test</span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <div className="relative flex-1 w-full">
+                  <input
+                    type="text"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    placeholder="Enter phone number starting with 03 (e.g. 03352575725)"
+                    className="w-full text-xs px-3.5 py-2.5 bg-white border border-emerald-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-slate-900"
+                  />
+                </div>
+                <button
+                  onClick={handleSendTestMessage}
+                  disabled={sendingTest || !testPhone.trim() || waState.status !== 'connected'}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 shrink-0 disabled:opacity-50 shadow-xs"
+                >
+                  {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  <span>Send Test Message</span>
+                </button>
+              </div>
+
+              {testResult && (
+                <div
+                  className={`p-2.5 rounded-lg border text-xs font-medium flex items-center space-x-2 ${
+                    testResult.type === 'success'
+                      ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
+                      : 'bg-rose-100 border-rose-300 text-rose-900'
+                  }`}
+                >
+                  {testResult.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" />
+                  )}
+                  <span>{testResult.text}</span>
+                </div>
+              )}
+            </div>
+
             {/* Action Buttons */}
             {sendResultMsg && (
               <div
@@ -1051,25 +1179,41 @@ export default function WhatsAppAdminPage() {
               </div>
             )}
 
-            {/* 7-Day Frequency Cooldown Control */}
+            {/* Frequency Cooldown & Daily Limit Control */}
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-              <label className="flex items-center space-x-2.5 text-xs text-slate-800 font-bold cursor-pointer select-none">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
+                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                  <Shield className="w-4 h-4 text-emerald-600" />
+                  <span>Broadcast Rate Limits & Safeguards</span>
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    todaySentCount >= dailyLimit
+                      ? 'bg-rose-100 border border-rose-300 text-rose-800'
+                      : 'bg-emerald-100 border border-emerald-300 text-emerald-800'
+                  }`}
+                >
+                  Daily Quota: {todaySentCount} / {dailyLimit} Sent Today
+                </span>
+              </div>
+
+              <label className="flex items-center space-x-2.5 text-xs text-slate-800 font-bold cursor-pointer select-none pt-1">
                 <input
                   type="checkbox"
                   checked={forceSend}
                   onChange={(e) => setForceSend(e.target.checked)}
                   className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                 />
-                <span>Force Send (Bypass 7-day cooldown limit per user)</span>
+                <span>Force Send (Bypass 10 msgs/day daily cap & 15-day user cooldown limit)</span>
               </label>
               <p className="text-[11px] text-slate-500 leading-relaxed pl-6">
                 {forceSend ? (
                   <span className="text-amber-700 font-semibold">
-                    ⚠️ Override Active: All selected users will be sent this message regardless of when they last received a message.
+                    ⚠️ Override Active: All selected users will be sent this message regardless of daily limits or prior message timestamps.
                   </span>
                 ) : (
                   <span>
-                    🛡️ <strong>7-Day Frequency Protection Active</strong>: Users who received a WhatsApp broadcast within the last 7 days will be automatically skipped (max 1 message per week).
+                    🛡️ <strong>Safeguards Active</strong>: Max <strong>10 messages per day</strong>. Users who received a WhatsApp broadcast within the last <strong>15 days</strong> will be automatically skipped.
                   </span>
                 )}
               </p>

@@ -32,6 +32,14 @@ export async function GET() {
       .limit(100)
       .toArray();
 
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todaySentCount = await db.collection(COLLECTIONS.WHATSAPP_LOGS).countDocuments({
+      status: 'sent',
+      sentAt: { $gte: todayStart },
+    });
+
     const formattedLogs = dbLogs.map((l) => ({
       phone: l.phone,
       name: l.name || 'User',
@@ -43,6 +51,8 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       state: currentStatus.state,
+      todaySentCount,
+      dailyLimit: 10,
       logs: formattedLogs.length > 0 ? formattedLogs : currentStatus.logs,
     });
   } catch (error: any) {

@@ -68,8 +68,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No valid target users found.' }, { status: 400 });
     }
 
-    // 7-day cooldown cutoff
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    // 15-day frequency cooldown cutoff per user
+    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+
+    // Daily quota limit (max 10 messages sent per calendar day)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const DAILY_LIMIT = 10;
+    let todaySentCount = await db.collection(COLLECTIONS.WHATSAPP_LOGS).countDocuments({
+      status: 'sent',
+      sentAt: { $gte: todayStart },
+    });
+
     const results: (SendResult & { skipped?: boolean })[] = [];
     let sentCount = 0;
     let failCount = 0;
@@ -94,24 +105,21 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check 7-day frequency rule if forceSend is not enabled
+      // Check daily quota limit (max 10 messages per day) if forceSend is not enabled
+      if (!forceSend && todaySentCount >= DAILY_LIMIT) {
+        skippedCount++;
+        continue;
+      }
+
+      // Check 15-day frequency rule per user if forceSend is not enabled
       if (!forceSend) {
         const recentLog = await db.collection(COLLECTIONS.WHATSAPP_LOGS).findOne({
           $or: [{ phone: cleanPhone }, { userId: user.id || user._id }],
           status: 'sent',
-          sentAt: { $gte: sevenDaysAgo },
+          sentAt: { $gte: fifteenDaysAgo },
         });
 
         if (recentLog) {
-          const skippedItem = {
-            phone: cleanPhone,
-            name: user.name || 'User',
-            success: false,
-            skipped: true,
-            error: `Skipped (Sent on ${new Date(recentLog.sentAt).toLocaleDateString()} - 7-day limit)`,
-            sentAt: new Date().toISOString(),
-          };
-          results.push(skippedItem);
           skippedCount++;
           continue;
         }
@@ -145,6 +153,7 @@ export async function POST(request: Request) {
 
       if (sendRes.success) {
         sentCount++;
+        todaySentCount++;
       } else {
         failCount++;
       }
@@ -161,6 +170,8 @@ export async function POST(request: Request) {
       sentCount,
       failCount,
       skippedCount,
+      todaySentCount,
+      dailyLimit: DAILY_LIMIT,
       results,
     });
   } catch (error: any) {
