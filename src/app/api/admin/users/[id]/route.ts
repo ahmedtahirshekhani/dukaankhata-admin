@@ -70,7 +70,7 @@ export async function PATCH(
     }
 
     if (body.subscription) {
-      const subUpdate: any = { updated_at: now };
+      const subUpdate: any = { updated_at: now, user_id: userObjectId };
       if (body.subscription.plan) subUpdate.plan = body.subscription.plan;
       if (body.subscription.status) subUpdate.status = body.subscription.status;
       if (body.subscription.expiresAt) subUpdate.expiry_date = new Date(body.subscription.expiresAt);

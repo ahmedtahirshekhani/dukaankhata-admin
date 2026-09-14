@@ -179,6 +179,26 @@ export async function POST(
       message = `Pro subscription created for ${user.name} (${billingCycle}) until ${formatDisplayDate(newEnd)}`;
     }
 
+    const activeSubId = (resultSub as any)._id;
+
+    // Re-link all matching subscription documents to user._id
+    await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateMany(
+      { $or: [{ user_id: user._id }, { email: user.email }] },
+      { $set: { user_id: user._id } }
+    );
+
+    // Cancel lingering blocked/expired/pending subscription documents that would conflict with the new active status
+    if (activeSubId) {
+      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateMany(
+        {
+          $or: [{ user_id: user._id }, { email: user.email }],
+          _id: { $ne: activeSubId },
+          status: { $in: ["login_blocked", "payment_expire", "pending"] },
+        },
+        { $set: { status: "cancelled", updated_at: now } }
+      );
+    }
+
     const expiresAt = new Date(
       (resultSub.expiry_date || resultSub.billing_cycle_end) as Date | string
     );
