@@ -36,6 +36,8 @@ declare global {
   var _waInitializing: boolean | undefined;
   // eslint-disable-next-line no-var
   var _waLogs: SendResult[] | undefined;
+  // eslint-disable-next-line no-var
+  var _waHasAttemptedAutoInit: boolean | undefined;
 }
 
 if (!global._waState) {
@@ -80,9 +82,33 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
   }
 
   global._waInitializing = true;
+
+  if (forceRestart) {
+    if (global._waSocket) {
+      try {
+        global._waSocket.ev.removeAllListeners('connection.update');
+        global._waSocket.ev.removeAllListeners('creds.update');
+        global._waSocket.end(undefined);
+      } catch (e) {
+        // ignore
+      }
+      global._waSocket = null;
+    }
+
+    try {
+      if (fs.existsSync(AUTH_FOLDER)) {
+        fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.error('Error clearing auth folder on forceRestart:', err);
+    }
+  }
+
+  const existingQrUrl = !forceRestart && global._waState?.status === 'qr_ready' ? global._waState.qrCodeUrl : null;
+
   global._waState = {
     status: 'connecting',
-    qrCodeUrl: null,
+    qrCodeUrl: existingQrUrl,
     phoneNumber: global._waState?.phoneNumber || null,
     userName: global._waState?.userName || null,
     error: null,
@@ -94,7 +120,7 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
       fs.mkdirSync(AUTH_FOLDER, { recursive: true });
     }
 
-    const { makeWASocket, DisconnectReason, useMultiFileAuthState } = await import('@whiskeysockets/baileys');
+    const { makeWASocket, DisconnectReason, useMultiFileAuthState, Browsers } = await import('@whiskeysockets/baileys');
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
     if (global._waSocket) {
@@ -111,7 +137,7 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
       auth: state,
       printQRInTerminal: false,
       logger: silentLogger as any,
-      browser: ['DukaanKhata Admin', 'Chrome', '1.0.0'],
+      browser: Browsers ? Browsers.ubuntu('Chrome') : ['DukaanKhata Admin', 'Chrome', '1.0.0'],
     });
 
     global._waSocket = sock;
@@ -132,6 +158,7 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
             error: null,
             connectedAt: null,
           };
+          global._waInitializing = false;
         } catch (qrErr: any) {
           console.error('QR code generation error:', qrErr);
         }
@@ -157,7 +184,9 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
 
         if (statusCode === DisconnectReason.loggedOut) {
           try {
-            fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+            if (fs.existsSync(AUTH_FOLDER)) {
+              fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+            }
           } catch (err) {
             console.error('Error clearing auth folder:', err);
           }
@@ -174,7 +203,7 @@ export async function initWhatsAppSession(forceRestart = false): Promise<WhatsAp
           global._waInitializing = false;
         } else if (shouldReconnect) {
           global._waInitializing = false;
-          initWhatsAppSession();
+          initWhatsAppSession(false);
         } else {
           global._waState = {
             status: 'disconnected',

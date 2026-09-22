@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { getDatabase, COLLECTIONS } from '@/lib/db/mongodb';
 import { getWhatsAppStatus, initWhatsAppSession } from '@/lib/whatsapp/baileys-manager';
+import fs from 'fs';
+import path from 'path';
 
 export async function GET() {
   try {
@@ -17,13 +19,21 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
 
-    // Auto-init session if disconnected to check saved creds
-    const statusObj = getWhatsAppStatus();
-    if (statusObj.state.status === 'disconnected') {
-      await initWhatsAppSession(false);
+    let currentStatus = getWhatsAppStatus();
+
+    // Auto-init session ONCE on server start if creds exist and not already initialized
+    if (
+      currentStatus.state.status === 'disconnected' &&
+      !global._waHasAttemptedAutoInit
+    ) {
+      global._waHasAttemptedAutoInit = true;
+      const credsPath = path.join(process.cwd(), '.whatsapp-auth', 'creds.json');
+      if (fs.existsSync(credsPath)) {
+        await initWhatsAppSession(false);
+        currentStatus = getWhatsAppStatus();
+      }
     }
 
-    const currentStatus = getWhatsAppStatus();
     const db = await getDatabase();
     const dbLogs = await db
       .collection(COLLECTIONS.WHATSAPP_LOGS)

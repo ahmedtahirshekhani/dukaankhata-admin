@@ -216,6 +216,8 @@ export default function WhatsAppAdminPage() {
       if (data.success && data.state) {
         setWaState(data.state);
       }
+      setTimeout(() => fetchStatus(), 1000);
+      setTimeout(() => fetchStatus(), 2500);
     } catch (err) {
       console.error('Error connecting WhatsApp:', err);
     } finally {
