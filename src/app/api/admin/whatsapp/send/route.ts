@@ -71,11 +71,11 @@ export async function POST(request: Request) {
     // 15-day frequency cooldown cutoff per user
     const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
 
-    // Daily quota limit (max 10 messages sent per calendar day)
+    // Daily quota limit (max 20 messages sent per calendar day)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const DAILY_LIMIT = 10;
+    const DAILY_LIMIT = 20;
     let todaySentCount = await db.collection(COLLECTIONS.WHATSAPP_LOGS).countDocuments({
       status: 'sent',
       sentAt: { $gte: todayStart },
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check daily quota limit (max 10 messages per day) if forceSend is not enabled
+      // Check daily quota limit (max 20 messages per day) if forceSend is not enabled
       if (!forceSend && todaySentCount >= DAILY_LIMIT) {
         skippedCount++;
         continue;

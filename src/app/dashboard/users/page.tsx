@@ -513,7 +513,7 @@ export default function UsersManagementPage() {
           </div>
           <div className="flex items-center space-x-2">
             <Link
-              href={`/dashboard/whatsapp?userId=${Array.from(selectedIds).join(',')}`}
+              href={`/dashboard/whatsapp?userId=${Array.from(selectedIds).slice(0, 10).join(',')}`}
               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-xs transition"
             >
               <MessageSquare className="w-3.5 h-3.5" />

@@ -129,6 +129,7 @@ export default function WhatsAppAdminPage() {
   const [targetFilter, setTargetFilter] = useState<TargetFilterType>('all');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState('');
+  const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [showAllPreview, setShowAllPreview] = useState(false);
 
   // Message & Send State
@@ -143,7 +144,7 @@ export default function WhatsAppAdminPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [todaySentCount, setTodaySentCount] = useState<number>(0);
-  const [dailyLimit, setDailyLimit] = useState<number>(10);
+  const [dailyLimit, setDailyLimit] = useState<number>(20);
 
   // Fetch WhatsApp status
   const fetchStatus = useCallback(async () => {
@@ -198,7 +199,11 @@ export default function WhatsAppAdminPage() {
     const preselectedId = params.get('userId');
     if (preselectedId && users.length > 0) {
       setTargetFilter('custom');
-      setSelectedUserIds(new Set([preselectedId]));
+      const ids = preselectedId.split(',').filter(Boolean).slice(0, 20);
+      setSelectedUserIds(new Set(ids));
+      if (preselectedId.split(',').filter(Boolean).length > 20) {
+        setSelectionWarning('Selected top 20 users from list (maximum 20 allowed).');
+      }
     }
   }, [users]);
 
@@ -253,8 +258,15 @@ export default function WhatsAppAdminPage() {
     }, 0);
   };
 
-  // Filter Target Users based on selection
-  const getFilteredRecipients = useCallback(() => {
+  // Handle filter change cleanly
+  const handleTargetFilterChange = (filter: TargetFilterType) => {
+    setTargetFilter(filter);
+    setSelectedUserIds(new Set());
+    setSelectionWarning(null);
+  };
+
+  // Filter matching users based on selected target audience filter & search query
+  const getMatchingFilterUsers = useCallback(() => {
     let result = users;
     const daysAgo = (d: number) => {
       const dt = new Date();
@@ -280,11 +292,9 @@ export default function WhatsAppAdminPage() {
       result = users.filter((u) => u.status !== 'suspended' && u.status !== 'blocked');
     } else if (targetFilter === 'suspended') {
       result = users.filter((u) => u.status === 'suspended' || u.status === 'blocked');
-    } else if (targetFilter === 'custom') {
-      result = users.filter((u) => selectedUserIds.has(u._id));
     }
 
-    if (userSearch && targetFilter === 'custom') {
+    if (userSearch) {
       const query = userSearch.toLowerCase();
       result = result.filter(
         (u) =>
@@ -295,26 +305,50 @@ export default function WhatsAppAdminPage() {
     }
 
     return result;
-  }, [users, targetFilter, selectedUserIds, userSearch]);
+  }, [users, targetFilter, userSearch]);
+
+  const matchingFilterUsers = getMatchingFilterUsers();
+
+  // Final Target Recipients (max 20 users):
+  // If specific users are checked, use selectedUserIds (max 20). Otherwise default to top 20 matching users.
+  const getFilteredRecipients = useCallback(() => {
+    if (selectedUserIds.size > 0) {
+      return users.filter((u) => selectedUserIds.has(u._id)).slice(0, 20);
+    }
+    return matchingFilterUsers.slice(0, 20);
+  }, [users, matchingFilterUsers, selectedUserIds]);
 
   const targetRecipients = getFilteredRecipients();
   const validRecipients = targetRecipients.filter(
     (u) => formatWhatsAppPhone(u.phone || (u as any).whatsapp || (u as any).mobile || '').length >= 10
   );
 
-  // Toggle user selection
+  // Toggle user selection (Max 20 users limit)
   const toggleSelectUser = (id: string) => {
+    setSelectionWarning(null);
     const next = new Set(selectedUserIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      if (next.size >= 20) {
+        setSelectionWarning('Maximum 20 users can be selected at a time.');
+        return;
+      }
+      next.add(id);
+    }
     setSelectedUserIds(next);
   };
 
   const toggleSelectAllCustom = () => {
-    if (selectedUserIds.size === users.length) {
+    setSelectionWarning(null);
+    if (selectedUserIds.size > 0) {
       setSelectedUserIds(new Set());
     } else {
-      setSelectedUserIds(new Set(users.map((u) => u._id)));
+      const top20 = matchingFilterUsers.slice(0, 20).map((u) => u._id);
+      setSelectedUserIds(new Set(top20));
+      if (matchingFilterUsers.length > 20) {
+        setSelectionWarning('Selected top 20 users from list (maximum 20 allowed).');
+      }
     }
   };
 
@@ -711,7 +745,7 @@ export default function WhatsAppAdminPage() {
 
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => setTargetFilter('all')}
+                  onClick={() => handleTargetFilterChange('all')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'all'
                       ? 'bg-sky-600 text-white shadow-xs'
@@ -721,7 +755,7 @@ export default function WhatsAppAdminPage() {
                   All Users ({users.length})
                 </button>
                 <button
-                  onClick={() => setTargetFilter('new7')}
+                  onClick={() => handleTargetFilterChange('new7')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'new7'
                       ? 'bg-teal-600 text-white shadow-xs'
@@ -741,7 +775,7 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => setTargetFilter('active')}
+                  onClick={() => handleTargetFilterChange('active')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'active'
                       ? 'bg-emerald-600 text-white shadow-xs'
@@ -751,7 +785,7 @@ export default function WhatsAppAdminPage() {
                   Active Users
                 </button>
                 <button
-                  onClick={() => setTargetFilter('pro')}
+                  onClick={() => handleTargetFilterChange('pro')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'pro'
                       ? 'bg-amber-500 text-white shadow-xs'
@@ -761,7 +795,7 @@ export default function WhatsAppAdminPage() {
                   Pro Plan ({users.filter((u) => u.subscription?.plan === 'pro').length})
                 </button>
                 <button
-                  onClick={() => setTargetFilter('free')}
+                  onClick={() => handleTargetFilterChange('free')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'free'
                       ? 'bg-slate-700 text-white shadow-xs'
@@ -771,7 +805,7 @@ export default function WhatsAppAdminPage() {
                   Free Plan ({users.filter((u) => u.subscription?.plan !== 'pro').length})
                 </button>
                 <button
-                  onClick={() => setTargetFilter('inactive7')}
+                  onClick={() => handleTargetFilterChange('inactive7')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'inactive7'
                       ? 'bg-purple-600 text-white shadow-xs'
@@ -789,7 +823,7 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => setTargetFilter('inactive15')}
+                  onClick={() => handleTargetFilterChange('inactive15')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'inactive15'
                       ? 'bg-orange-600 text-white shadow-xs'
@@ -807,7 +841,7 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => setTargetFilter('inactive30')}
+                  onClick={() => handleTargetFilterChange('inactive30')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'inactive30'
                       ? 'bg-rose-600 text-white shadow-xs'
@@ -825,7 +859,7 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => setTargetFilter('inactive90')}
+                  onClick={() => handleTargetFilterChange('inactive90')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'inactive90'
                       ? 'bg-red-700 text-white shadow-xs'
@@ -843,14 +877,14 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => setTargetFilter('custom')}
+                  onClick={() => handleTargetFilterChange('custom')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
                     targetFilter === 'custom'
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                   }`}
                 >
-                  Specific Users ({selectedUserIds.size})
+                  Specific Users ({selectedUserIds.size > 0 ? `${selectedUserIds.size}/20` : 'Max 20'})
                 </button>
               </div>
 
@@ -866,7 +900,7 @@ export default function WhatsAppAdminPage() {
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11px]">
                     {targetFilter === 'all' && (
-                      <span>Includes all registered merchant accounts in the database collection.</span>
+                      <span>Includes all registered merchant accounts in database. You can check specific users below (max 20).</span>
                     )}
                     {targetFilter === 'new7' && (
                       <span>Includes merchants who signed up in the last 7 days (<code className="font-mono text-teal-700 bg-teal-50 px-1 py-0.5 rounded">createdAt &gt;= 7 days ago</code>). Perfect for welcome messages!</span>
@@ -896,74 +930,113 @@ export default function WhatsAppAdminPage() {
                       <span>Includes merchants whose accounts are blocked or suspended (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">status === &apos;suspended&apos; || status === &apos;blocked&apos;</code>).</span>
                     )}
                     {targetFilter === 'custom' && (
-                      <span>Allows hand-picking specific individual users by searching name, shop name, or phone number.</span>
+                      <span>Allows hand-picking specific individual users (maximum 20 users allowed per message).</span>
                     )}
                   </p>
                 </div>
               </div>
 
-              {/* Custom User Picker List if 'custom' filter selected */}
-              {targetFilter === 'custom' && (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 max-h-56 overflow-y-auto">
-                  <div className="flex items-center justify-between">
-                    <div className="relative flex-1 mr-3">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        placeholder="Search merchant by name, shop or phone..."
-                        value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
-                        className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
-                      />
-                    </div>
+              {/* Selectable User Picker List (Always visible for selected target filter) */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder={`Search ${matchingFilterUsers.length} matching merchant${matchingFilterUsers.length !== 1 ? 's' : ''} by name, shop or phone...`}
+                      value={userSearch}
+                      onChange={(e) => {
+                        setUserSearch(e.target.value);
+                        setSelectionWarning(null);
+                      }}
+                      className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end space-x-3 shrink-0">
+                    <span className="text-xs font-bold text-slate-600 bg-white px-2.5 py-1 border border-slate-200 rounded-lg">
+                      Selected: <span className={selectedUserIds.size >= 20 ? 'text-amber-600 font-extrabold' : 'text-sky-600 font-extrabold'}>{selectedUserIds.size}</span> / 20
+                    </span>
                     <button
                       onClick={toggleSelectAllCustom}
-                      className="text-xs text-sky-600 hover:text-sky-700 font-bold shrink-0"
+                      className="text-xs text-sky-600 hover:text-sky-700 font-bold"
                     >
-                      {selectedUserIds.size === users.length ? 'Deselect All' : 'Select All'}
+                      {selectedUserIds.size > 0 ? 'Deselect All' : 'Select Top 20'}
                     </button>
                   </div>
-
-                  <div className="space-y-1.5">
-                    {users
-                      .filter((u) => {
-                        if (!userSearch) return true;
-                        const q = userSearch.toLowerCase();
-                        return (
-                          u.name.toLowerCase().includes(q) ||
-                          (u.shopName || '').toLowerCase().includes(q) ||
-                          (u.phone || '').includes(q)
-                        );
-                      })
-                      .map((u) => {
-                        const isSelected = selectedUserIds.has(u._id);
-                        return (
-                          <div
-                            key={u._id}
-                            onClick={() => toggleSelectUser(u._id)}
-                            className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-xs transition border ${
-                              isSelected
-                                ? 'bg-sky-50 border-sky-200 text-sky-900 font-semibold'
-                                : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => {}}
-                                className="rounded text-sky-600 focus:ring-sky-500"
-                              />
-                              <span className="font-bold">{u.name}</span>
-                              {u.shopName && <span className="text-slate-500 text-[11px]">({u.shopName})</span>}
-                            </div>
-                            <span className="text-[11px] text-slate-500">{u.phone || 'No Phone'}</span>
-                          </div>
-                        );
-                      })}
-                  </div>
                 </div>
-              )}
+
+                {selectionWarning && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs flex items-center space-x-2 font-medium">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>{selectionWarning}</span>
+                  </div>
+                )}
+
+                {matchingFilterUsers.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-slate-500 font-medium bg-white rounded-lg border border-slate-200">
+                    No merchants match the selected filter or search query.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {matchingFilterUsers.map((u) => {
+                      const isSelected = selectedUserIds.has(u._id);
+                      const isLimitReached = selectedUserIds.size >= 20 && !isSelected;
+                      const rawPh = u.phone || (u as any).whatsapp || (u as any).mobile || '';
+                      const cleanPh = formatWhatsAppPhone(rawPh);
+                      const hasPhone = cleanPh.length >= 10;
+
+                      return (
+                        <div
+                          key={u._id}
+                          onClick={() => toggleSelectUser(u._id)}
+                          className={`flex items-center justify-between p-2 rounded-lg text-xs transition border ${
+                            isLimitReached
+                              ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                              : isSelected
+                              ? 'bg-sky-50 border-sky-200 text-sky-900 font-semibold cursor-pointer'
+                              : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 cursor-pointer'
+                          }`}
+                          title={isLimitReached ? 'Maximum 20 users limit reached' : ''}
+                        >
+                          <div className="flex items-center space-x-2 overflow-hidden mr-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={isLimitReached}
+                              onChange={() => {}}
+                              className="rounded text-sky-600 focus:ring-sky-500 disabled:opacity-50"
+                            />
+                            <span className="font-bold truncate">{u.name}</span>
+                            {u.shopName && <span className="text-slate-500 text-[11px] truncate">({u.shopName})</span>}
+                          </div>
+
+                          <div className="flex items-center space-x-2 shrink-0">
+                            {u.subscription?.plan === 'pro' ? (
+                              <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-full font-bold text-[10px]">
+                                PRO
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-semibold text-[10px]">
+                                Free
+                              </span>
+                            )}
+
+                            {hasPhone ? (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-mono text-[11px]">
+                                +{cleanPh}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-md font-semibold text-[10px]">
+                                No Phone
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               {/* Target Audience User Preview Box (Shows matching merchants) */}
               <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4 space-y-3">
@@ -1204,7 +1277,7 @@ export default function WhatsAppAdminPage() {
                   onChange={(e) => setForceSend(e.target.checked)}
                   className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                 />
-                <span>Force Send (Bypass 10 msgs/day daily cap & 15-day user cooldown limit)</span>
+                <span>Force Send (Bypass 20 msgs/day daily cap & 15-day user cooldown limit)</span>
               </label>
               <p className="text-[11px] text-slate-500 leading-relaxed pl-6">
                 {forceSend ? (
@@ -1213,7 +1286,7 @@ export default function WhatsAppAdminPage() {
                   </span>
                 ) : (
                   <span>
-                    🛡️ <strong>Safeguards Active</strong>: Max <strong>10 messages per day</strong>. Users who received a WhatsApp broadcast within the last <strong>15 days</strong> will be automatically skipped.
+                    🛡️ <strong>Safeguards Active</strong>: Max <strong>20 messages per day</strong>. Users who received a WhatsApp broadcast within the last <strong>15 days</strong> will be automatically skipped.
                   </span>
                 )}
               </p>

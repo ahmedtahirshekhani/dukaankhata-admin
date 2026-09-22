@@ -52,7 +52,7 @@ export async function GET() {
       success: true,
       state: currentStatus.state,
       todaySentCount,
-      dailyLimit: 10,
+      dailyLimit: 20,
       logs: formattedLogs.length > 0 ? formattedLogs : currentStatus.logs,
     });
   } catch (error: any) {
