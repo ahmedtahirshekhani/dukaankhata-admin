@@ -748,21 +748,19 @@ export default function WhatsAppAdminPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => handleTargetFilterChange('all')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'all'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'all'
                       ? 'bg-sky-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   All Users ({users.length})
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('new7')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'new7'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'new7'
                       ? 'bg-teal-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   New Users (&lt; 7 Days) (
                   {
@@ -778,41 +776,37 @@ export default function WhatsAppAdminPage() {
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('active')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'active'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'active'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Active Users
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('pro')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'pro'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'pro'
                       ? 'bg-amber-500 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Pro Plan ({users.filter((u) => u.subscription?.plan === 'pro').length})
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('free')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'free'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'free'
                       ? 'bg-slate-700 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Free Plan ({users.filter((u) => u.subscription?.plan !== 'pro').length})
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('inactive7')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'inactive7'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive7'
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Inactive (7+ Days) (
                   {
@@ -826,11 +820,10 @@ export default function WhatsAppAdminPage() {
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('inactive15')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'inactive15'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive15'
                       ? 'bg-orange-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Inactive (15+ Days) (
                   {
@@ -844,11 +837,10 @@ export default function WhatsAppAdminPage() {
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('inactive30')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'inactive30'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive30'
                       ? 'bg-rose-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Inactive (1 Month+) (
                   {
@@ -862,11 +854,10 @@ export default function WhatsAppAdminPage() {
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('inactive90')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'inactive90'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive90'
                       ? 'bg-red-700 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Inactive (3 Months+) (
                   {
@@ -880,11 +871,10 @@ export default function WhatsAppAdminPage() {
                 </button>
                 <button
                   onClick={() => handleTargetFilterChange('custom')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    targetFilter === 'custom'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'custom'
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
+                    }`}
                 >
                   Specific Users ({selectedUserIds.size > 0 ? `${selectedUserIds.size}/20` : 'Max 20'})
                 </button>
@@ -991,13 +981,12 @@ export default function WhatsAppAdminPage() {
                         <div
                           key={u._id}
                           onClick={() => toggleSelectUser(u._id)}
-                          className={`flex items-center justify-between p-2 rounded-lg text-xs transition border ${
-                            isLimitReached
+                          className={`flex items-center justify-between p-2 rounded-lg text-xs transition border ${isLimitReached
                               ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
                               : isSelected
-                              ? 'bg-sky-50 border-sky-200 text-sky-900 font-semibold cursor-pointer'
-                              : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 cursor-pointer'
-                          }`}
+                                ? 'bg-sky-50 border-sky-200 text-sky-900 font-semibold cursor-pointer'
+                                : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 cursor-pointer'
+                            }`}
                           title={isLimitReached ? 'Maximum 20 users limit reached' : ''}
                         >
                           <div className="flex items-center space-x-2 overflow-hidden mr-2">
@@ -1005,7 +994,7 @@ export default function WhatsAppAdminPage() {
                               type="checkbox"
                               checked={isSelected}
                               disabled={isLimitReached}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="rounded text-sky-600 focus:ring-sky-500 disabled:opacity-50"
                             />
                             <span className="font-bold truncate">{u.name}</span>
@@ -1220,11 +1209,10 @@ export default function WhatsAppAdminPage() {
 
               {testResult && (
                 <div
-                  className={`p-2.5 rounded-lg border text-xs font-medium flex items-center space-x-2 ${
-                    testResult.type === 'success'
+                  className={`p-2.5 rounded-lg border text-xs font-medium flex items-center space-x-2 ${testResult.type === 'success'
                       ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
                       : 'bg-rose-100 border-rose-300 text-rose-900'
-                  }`}
+                    }`}
                 >
                   {testResult.type === 'success' ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -1239,11 +1227,10 @@ export default function WhatsAppAdminPage() {
             {/* Action Buttons */}
             {sendResultMsg && (
               <div
-                className={`p-3.5 rounded-xl border text-xs font-medium flex items-center space-x-2 ${
-                  sendResultMsg.type === 'success'
+                className={`p-3.5 rounded-xl border text-xs font-medium flex items-center space-x-2 ${sendResultMsg.type === 'success'
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                     : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
+                  }`}
               >
                 {sendResultMsg.type === 'success' ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1262,11 +1249,10 @@ export default function WhatsAppAdminPage() {
                   <span>Broadcast Rate Limits & Safeguards</span>
                 </span>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                    todaySentCount >= dailyLimit
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${todaySentCount >= dailyLimit
                       ? 'bg-rose-100 border border-rose-300 text-rose-800'
                       : 'bg-emerald-100 border border-emerald-300 text-emerald-800'
-                  }`}
+                    }`}
                 >
                   Daily Quota: {todaySentCount} / {dailyLimit} Sent Today
                 </span>
