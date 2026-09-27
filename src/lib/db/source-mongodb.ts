@@ -2,7 +2,7 @@
  * Source MongoDB connection — connects to the MAIN Dukaankhata database.
  * Used ONLY by the migration sync cron endpoint.
  */
-import { MongoClient, Db, Collection } from 'mongodb';
+import { MongoClient, MongoClientOptions, Db, Collection } from 'mongodb';
 
 const SOURCE_MONGODB_URL = process.env.SOURCE_MONGODB_URL || '';
 const SOURCE_DB_NAME = process.env.SOURCE_MONGODB_DB_NAME || 'dukaankhata-prod';
@@ -11,28 +11,39 @@ if (!SOURCE_MONGODB_URL) {
   console.warn('Warning: SOURCE_MONGODB_URL is not set. Migration sync will not work.');
 }
 
-let sourceClient: MongoClient;
-let sourceClientPromise: Promise<MongoClient>;
+const mongoOptions: MongoClientOptions = {
+  maxIdleTimeMS: 10000,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  retryWrites: true,
+  retryReads: true,
+};
 
 declare global {
   // eslint-disable-next-line no-var
   var _sourceMongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-if (process.env.NODE_ENV === 'development') {
-  if (!global._sourceMongoClientPromise) {
-    sourceClient = new MongoClient(SOURCE_MONGODB_URL);
-    global._sourceMongoClientPromise = sourceClient.connect();
-  }
-  sourceClientPromise = global._sourceMongoClientPromise;
-} else {
-  sourceClient = new MongoClient(SOURCE_MONGODB_URL);
-  sourceClientPromise = sourceClient.connect();
+function createSourceClientPromise(): Promise<MongoClient> {
+  const client = new MongoClient(SOURCE_MONGODB_URL, mongoOptions);
+  return client.connect().catch((err) => {
+    global._sourceMongoClientPromise = undefined;
+    throw err;
+  });
 }
 
 export async function getSourceDatabase(): Promise<Db> {
-  const c = await sourceClientPromise;
-  return c.db(SOURCE_DB_NAME);
+  if (!global._sourceMongoClientPromise) {
+    global._sourceMongoClientPromise = createSourceClientPromise();
+  }
+  try {
+    const c = await global._sourceMongoClientPromise;
+    return c.db(SOURCE_DB_NAME);
+  } catch (err) {
+    global._sourceMongoClientPromise = undefined;
+    throw err;
+  }
 }
 
 export async function getSourceCollection<T extends Document = any>(name: string): Promise<Collection<T>> {

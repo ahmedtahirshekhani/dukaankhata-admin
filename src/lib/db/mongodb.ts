@@ -1,4 +1,4 @@
-import { MongoClient, Db, Collection, ObjectId } from 'mongodb';
+import { MongoClient, MongoClientOptions, Db, Collection, ObjectId } from 'mongodb';
 
 const MONGODB_URL = process.env.MONGODB_URL || '';
 const DB_NAME = process.env.MONGODB_DB_NAME || 'dukaankhata-admin-prod';
@@ -7,28 +7,39 @@ if (!MONGODB_URL) {
   console.warn('Warning: MONGODB_URL is not set in environment variables.');
 }
 
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
+const mongoOptions: MongoClientOptions = {
+  maxIdleTimeMS: 10000,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  retryWrites: true,
+  retryReads: true,
+};
 
 declare global {
   // eslint-disable-next-line no-var
   var _adminMongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-if (process.env.NODE_ENV === 'development') {
-  if (!global._adminMongoClientPromise) {
-    client = new MongoClient(MONGODB_URL);
-    global._adminMongoClientPromise = client.connect();
-  }
-  clientPromise = global._adminMongoClientPromise;
-} else {
-  client = new MongoClient(MONGODB_URL);
-  clientPromise = client.connect();
+function createClientPromise(): Promise<MongoClient> {
+  const client = new MongoClient(MONGODB_URL, mongoOptions);
+  return client.connect().catch((err) => {
+    global._adminMongoClientPromise = undefined;
+    throw err;
+  });
 }
 
 export async function getDatabase(): Promise<Db> {
-  const c = await clientPromise;
-  return c.db(DB_NAME);
+  if (!global._adminMongoClientPromise) {
+    global._adminMongoClientPromise = createClientPromise();
+  }
+  try {
+    const c = await global._adminMongoClientPromise;
+    return c.db(DB_NAME);
+  } catch (err) {
+    global._adminMongoClientPromise = undefined;
+    throw err;
+  }
 }
 
 export async function getCollection<T extends Document = any>(name: string): Promise<Collection<T>> {
