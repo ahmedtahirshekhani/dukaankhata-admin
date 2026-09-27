@@ -3,7 +3,6 @@ import { getDatabase, COLLECTIONS, toObjectId } from '@/lib/db/mongodb';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { ObjectId } from 'mongodb';
-import { isMerchantDeletable, purgeMerchantData } from '@/lib/admin/purge-user';
 
 async function checkAdmin() {
   const cookieStore = await cookies();
@@ -35,13 +34,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 });
     }
 
-    const user = await db.collection(COLLECTIONS.USERS).findOne({ _id: userObjectId });
+    const user = await db.collection(COLLECTIONS.CURRENT_USERS).findOne({ _id: userObjectId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
     const now = new Date();
-    const userUpdate: any = { updated_at: now };
+    const userUpdate: any = { updatedAt: now };
 
     if (body.status) {
       userUpdate.status = body.status;
@@ -51,34 +50,39 @@ export async function PATCH(
       userUpdate.role = body.role;
     }
 
-    await db.collection(COLLECTIONS.USERS).updateOne(
+    // Update subscription status based on user status change
+    if (body.status === 'suspended' || body.status === 'blocked') {
+      userUpdate['subscription.status'] = 'login_blocked';
+    } else if (body.status === 'active') {
+      userUpdate['subscription.status'] = 'active';
+    }
+
+    // Direct subscription updates
+    if (body.subscription) {
+      if (body.subscription.plan) userUpdate['subscription.plan'] = body.subscription.plan;
+      if (body.subscription.status) userUpdate['subscription.status'] = body.subscription.status;
+      if (body.subscription.expiresAt) userUpdate['subscription.expiresAt'] = new Date(body.subscription.expiresAt);
+    }
+
+    await db.collection(COLLECTIONS.CURRENT_USERS).updateOne(
       { _id: userObjectId },
       { $set: userUpdate }
     );
 
-    // Update Subscription status according to schema
-    if (body.status === 'suspended' || body.status === 'blocked') {
-      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateMany(
-        { $or: [{ user_id: userObjectId }, { email: user.email }] },
-        { $set: { status: 'login_blocked', updated_at: now } }
-      );
-    } else if (body.status === 'active') {
-      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateMany(
-        { $or: [{ user_id: userObjectId }, { email: user.email }] },
-        { $set: { status: 'active', updated_at: now } }
-      );
-    }
+    // Sync status change to Source DB (Main Dukaankhata) if connected
+    if (body.status) {
+      try {
+        const { getSourceDatabase, SOURCE_COLLECTIONS } = await import('@/lib/db/source-mongodb');
+        const sourceDb = await getSourceDatabase();
+        const origId = user.originalUserId || user._id;
 
-    if (body.subscription) {
-      const subUpdate: any = { updated_at: now, user_id: userObjectId };
-      if (body.subscription.plan) subUpdate.plan = body.subscription.plan;
-      if (body.subscription.status) subUpdate.status = body.subscription.status;
-      if (body.subscription.expiresAt) subUpdate.expiry_date = new Date(body.subscription.expiresAt);
-
-      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateMany(
-        { $or: [{ user_id: userObjectId }, { email: user.email }] },
-        { $set: subUpdate }
-      );
+        await sourceDb.collection(SOURCE_COLLECTIONS.USERS).updateOne(
+          { $or: [{ _id: origId }, { _id: origId.toString() }, { email: user.email }] },
+          { $set: { status: body.status, updated_at: now } }
+        );
+      } catch (sourceErr) {
+        console.warn('Could not sync status change to source DB:', sourceErr);
+      }
     }
 
     return NextResponse.json({
@@ -90,7 +94,7 @@ export async function PATCH(
   }
 }
 
-// DELETE USER COMPLETELY ((blocked or expired) and inactive 60+ days)
+// DELETE USER COMPLETELY
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -111,7 +115,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 });
     }
 
-    const user = await db.collection(COLLECTIONS.USERS).findOne({ _id: userObjectId });
+    const user = await db.collection(COLLECTIONS.CURRENT_USERS).findOne({ _id: userObjectId });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -120,27 +124,41 @@ export async function DELETE(
       return NextResponse.json({ error: 'Admin accounts cannot be deleted.' }, { status: 400 });
     }
 
-    const now = new Date();
+    // Archive to leads_deleted before purging
+    const leadRecord = {
+      originalUserId: (user.originalUserId || userObjectId).toString(),
+      name: user.name || 'Unknown Merchant',
+      email: user.email || '',
+      phone: user.phone || '',
+      company: user.shopName || 'N/A',
+      address: user.address || 'N/A',
+      city: user.city || '',
+      role: user.role || 'user',
+      userStatus: user.status || 'active',
+      subscriptionPlan: user.subscription?.plan || 'trial',
+      subscriptionStatus: user.subscription?.status || 'expired',
+      lastActivity: user.lastActivity || null,
+      createdAt: user.createdAt || null,
+      deletedAt: new Date(),
+    };
 
-    const deletable = await isMerchantDeletable(db, user as any, now);
+    await db.collection(COLLECTIONS.LEADS_DELETED).insertOne(leadRecord);
 
-    if (!deletable) {
-      return NextResponse.json(
-        {
-          error:
-            'Merchant is not eligible for deletion. (Must be Login Blocked, an expired trial plan with > 7 days of inactivity, or expired with > 60 days of inactivity).',
-        },
-        { status: 400 }
-      );
-    }
-
-    const userEmail = user.email;
-
-    await purgeMerchantData(db, userObjectId, userEmail);
+    // Delete from current_users and whatsapp_logs
+    await Promise.all([
+      db.collection(COLLECTIONS.CURRENT_USERS).deleteOne({ _id: userObjectId }),
+      db.collection(COLLECTIONS.WHATSAPP_LOGS).deleteMany({
+        $or: [
+          { userId: userObjectId.toString() },
+          { userId: userObjectId },
+          ...(user.phone ? [{ phone: user.phone }] : []),
+        ],
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: `Merchant "${user.name}" (${userEmail}) and all associated data deleted permanently.`,
+      message: `Merchant "${user.name}" (${user.email}) deleted permanently.`,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });

@@ -18,33 +18,39 @@ export async function GET() {
 
     const db = await getDatabase();
     const now = new Date();
+    const col = db.collection(COLLECTIONS.CURRENT_USERS);
 
-    const totalUsers = await db.collection(COLLECTIONS.USERS).countDocuments({ role: { $ne: 'admin' } });
-    const activeUsers = await db.collection(COLLECTIONS.USERS).countDocuments({
+    const totalUsers = await col.countDocuments({ role: { $ne: 'admin' } });
+    const activeUsers = await col.countDocuments({
       role: { $ne: 'admin' },
       status: { $nin: ['suspended', 'blocked'] },
     });
-    const suspendedUsers = await db.collection(COLLECTIONS.USERS).countDocuments({
+    const suspendedUsers = await col.countDocuments({
       role: { $ne: 'admin' },
       status: { $in: ['suspended', 'blocked'] },
     });
-    const totalShops = await db.collection(COLLECTIONS.SHOPS).countDocuments();
 
-    const activeSubscriptions = await db.collection(COLLECTIONS.SUBSCRIPTIONS).countDocuments({
-      $or: [{ status: 'active' }, { status: 'in_trial' }],
-      expiry_date: { $gt: now },
+    // Subscription stats from flat current_users data
+    const activeSubscriptions = await col.countDocuments({
+      'subscription.status': { $in: ['active', 'in_trial'] },
+      'subscription.expiresAt': { $gt: now },
     });
 
-    const expiredSubscriptions = await db.collection(COLLECTIONS.SUBSCRIPTIONS).countDocuments({
-      $or: [{ status: 'expired' }, { expiry_date: { $lte: now } }],
+    const expiredSubscriptions = await col.countDocuments({
+      $or: [
+        { 'subscription.status': 'expired' },
+        { 'subscription.expiresAt': { $lte: now } },
+      ],
     });
 
-    const trialSubscriptions = await db.collection(COLLECTIONS.SUBSCRIPTIONS).countDocuments({
-      plan: 'trial',
-      expiry_date: { $gt: now },
+    const trialSubscriptions = await col.countDocuments({
+      'subscription.plan': 'trial',
+      'subscription.expiresAt': { $gt: now },
     });
 
-    const waitlistCount = await db.collection(COLLECTIONS.WAITLIST).countDocuments();
+    // Total shops = total current_users (each user represents a shop)
+    const totalShops = totalUsers;
+
     const deletedLeadsCount = await db.collection(COLLECTIONS.LEADS_DELETED).countDocuments();
 
     return NextResponse.json({
@@ -57,12 +63,12 @@ export async function GET() {
         activeSubscriptions,
         expiredSubscriptions,
         trialSubscriptions,
-        waitlistCount,
+        waitlistCount: 0,
         deletedLeadsCount,
       },
     });
   } catch (error: any) {
-    console.error('Real stats aggregation error:', error);
+    console.error('Stats aggregation error:', error);
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }

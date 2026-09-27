@@ -1,5 +1,4 @@
 import { COLLECTIONS } from '@/lib/db/mongodb';
-import { PENDING_PAYMENT_STATUSES } from '@/lib/subscriptions';
 
 export type UsersSortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt' | 'lastWaMessageSentAt';
 
@@ -18,20 +17,26 @@ export interface UsersQueryParams {
 const SORT_FIELD_MAP: Record<UsersSortField, string> = {
   lastActivity: 'lastActivity',
   name: 'name',
-  shopName: 'resolvedShopName',
-  expiry: 'expiresAt',
+  shopName: 'shopName',
+  expiry: 'subscription.expiresAt',
   revenue: 'monthlyRevenue',
   orders: 'totalTransactions',
   createdAt: 'createdAt',
   lastWaMessageSentAt: 'lastWaMessageSentAt',
 };
 
+/**
+ * Builds an aggregation pipeline for the `current_users` collection.
+ * Data is already flat (no lookups needed for shops/subscriptions).
+ * Only looks up whatsapp_logs for live last-sent data.
+ */
 export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
   const { search, status, plan, subState, role, sortBy, sortOrder, page, limit } = params;
   const skip = (page - 1) * limit;
   const sortField = SORT_FIELD_MAP[sortBy] || 'lastActivity';
   const sortDirection = sortOrder === 'asc' ? 1 : -1;
 
+  // Initial match: filter by role and status
   const userMatch: Record<string, unknown> = {
     role: role !== 'all' ? role : { $ne: 'admin' },
   };
@@ -44,150 +49,28 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
 
   const pipeline: Record<string, unknown>[] = [{ $match: userMatch }];
 
-  pipeline.push(
-    {
-      $lookup: {
-        from: COLLECTIONS.SHOPS,
-        let: { uid: '$_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  { $eq: ['$owner_user_id', '$$uid'] },
-                  { $eq: ['$user_id', '$$uid'] },
-                  { $eq: ['$_id', '$$uid'] },
-                ],
-              },
-            },
-          },
-          { $limit: 1 },
-        ],
-        as: 'shopDoc',
+  // Add computed fields from flat data
+  pipeline.push({
+    $addFields: {
+      subPlan: {
+        $toLower: { $ifNull: ['$subscription.plan', 'trial'] },
+      },
+      subStat: {
+        $ifNull: ['$subscription.status', 'in_trial'],
+      },
+      expiresAt: {
+        $ifNull: ['$subscription.expiresAt', now],
+      },
+      lastActivity: {
+        $ifNull: ['$lastActivity', { $ifNull: ['$createdAt', now] }],
+      },
+      createdAt: {
+        $ifNull: ['$createdAt', now],
       },
     },
-    {
-      $lookup: {
-        from: COLLECTIONS.SUBSCRIPTIONS,
-        let: { uid: '$_id', email: '$email' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [{ $eq: ['$user_id', '$$uid'] }, { $eq: ['$email', '$$email'] }],
-              },
-            },
-          },
-          { $sort: { created_at: -1 } },
-        ],
-        as: 'allSubs',
-      },
-    },
-    {
-      $addFields: {
-        shopFromLookup: { $arrayElemAt: ['$shopDoc', 0] },
-        effectiveSub: {
-          $let: {
-            vars: { subs: '$allSubs' },
-            in: {
-              $ifNull: [
-                {
-                  $first: {
-                    $filter: {
-                      input: '$$subs',
-                      as: 's',
-                      cond: {
-                        $and: [
-                          { $eq: ['$$s.plan', 'pro'] },
-                          { $eq: ['$$s.status', 'active'] },
-                        ],
-                      },
-                    },
-                  },
-                },
-                {
-                  $ifNull: [
-                    {
-                      $first: {
-                        $filter: {
-                          input: '$$subs',
-                          as: 's',
-                          cond: { $eq: ['$$s.status', 'active'] },
-                        },
-                      },
-                    },
-                    {
-                      $ifNull: [
-                        {
-                          $first: {
-                            $filter: {
-                              input: '$$subs',
-                              as: 's',
-                              cond: { $in: ['$$s.status', [...PENDING_PAYMENT_STATUSES]] },
-                            },
-                          },
-                        },
-                        { $arrayElemAt: ['$$subs', 0] },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-      },
-    },
-    {
-      $addFields: {
-        resolvedShopName: {
-          $ifNull: ['$shopFromLookup.name', { $ifNull: ['$shopName', 'Dukaan Store'] }],
-        },
-        resolvedPhone: {
-          $ifNull: ['$phone', { $ifNull: ['$shopFromLookup.company_phone', ''] }],
-        },
-        subPlan: {
-          $toLower: {
-            $ifNull: ['$effectiveSub.plan', { $ifNull: ['$subscription.plan', 'trial'] }],
-          },
-        },
-        subStat: {
-          $ifNull: ['$effectiveSub.status', { $ifNull: ['$subscription.status', 'in_trial'] }],
-        },
-        expiresAt: {
-          $ifNull: [
-            '$effectiveSub.expiry_date',
-            {
-              $ifNull: [
-                '$effectiveSub.billing_cycle_end',
-                { $ifNull: ['$subscription.expiresAt', now] },
-              ],
-            },
-          ],
-        },
-        lastActivity: {
-          $ifNull: [
-            '$lastLogin',
-            {
-              $ifNull: [
-                '$user_last_updated_at',
-                {
-                  $ifNull: [
-                    '$updated_at',
-                    { $ifNull: ['$created_at', '$createdAt'] },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        createdAt: {
-          $ifNull: ['$created_at', { $ifNull: ['$createdAt', now] }],
-        },
-      },
-    }
-  );
+  });
 
+  // Post-computed-field filters (search, plan, subState)
   const postMatch: Record<string, unknown> = {};
 
   if (search.trim()) {
@@ -197,7 +80,6 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
       { email: regex },
       { phone: regex },
       { shopName: regex },
-      { resolvedShopName: regex },
     ];
   }
 
@@ -228,44 +110,12 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
     pipeline.push({ $match: postMatch });
   }
 
+  // Lookup latest WhatsApp log for each user
   pipeline.push(
     {
       $lookup: {
-        from: COLLECTIONS.ORDERS,
-        let: { uid: '$_id' },
-        pipeline: [
-          { $match: { $expr: { $eq: ['$user_id', '$$uid'] } } },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: '$total_amount' },
-              count: { $sum: 1 },
-            },
-          },
-        ],
-        as: 'orderAgg',
-      },
-    },
-    {
-      $addFields: {
-        monthlyRevenue: {
-          $let: {
-            vars: { agg: { $arrayElemAt: ['$orderAgg', 0] } },
-            in: { $ifNull: ['$$agg.total', { $ifNull: ['$monthlyRevenue', 0] }] },
-          },
-        },
-        totalTransactions: {
-          $let: {
-            vars: { agg: { $arrayElemAt: ['$orderAgg', 0] } },
-            in: { $ifNull: ['$$agg.count', { $ifNull: ['$totalTransactions', 0] }] },
-          },
-        },
-      },
-    },
-    {
-      $lookup: {
         from: COLLECTIONS.WHATSAPP_LOGS,
-        let: { uid: '$_id', ph: '$resolvedPhone' },
+        let: { uid: '$_id', ph: '$phone' },
         pipeline: [
           {
             $match: {
@@ -291,18 +141,28 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
     },
     {
       $addFields: {
+        // Prefer live WA log over migrated whatsapp.lastMessageSentAt
         lastWaMessageSentAt: {
-          $let: {
-            vars: { log: { $arrayElemAt: ['$lastWaLogDoc', 0] } },
-            in: '$$log.sentAt',
-          },
+          $ifNull: [
+            { $let: { vars: { log: { $arrayElemAt: ['$lastWaLogDoc', 0] } }, in: '$$log.sentAt' } },
+            '$whatsapp.lastMessageSentAt',
+          ],
         },
         isNeverWaSent: {
-          $cond: [{ $ifNull: [{ $arrayElemAt: ['$lastWaLogDoc', 0] }, false] }, 0, 1],
+          $cond: [
+            {
+              $or: [
+                { $ifNull: [{ $arrayElemAt: ['$lastWaLogDoc', 0] }, false] },
+                { $ifNull: ['$whatsapp.lastMessageSentAt', false] },
+              ],
+            },
+            0,
+            1,
+          ],
         },
         hasPhoneSort: {
           $cond: [
-            { $gt: [{ $strLenCP: { $ifNull: ['$resolvedPhone', ''] } }, 8] },
+            { $gt: [{ $strLenCP: { $ifNull: ['$phone', ''] } }, 8] },
             1,
             0,
           ],
@@ -328,17 +188,17 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
               email: 1,
               role: { $ifNull: ['$role', 'user'] },
               status: { $ifNull: ['$status', 'active'] },
-              shopName: '$resolvedShopName',
-              phone: '$resolvedPhone',
+              shopName: { $ifNull: ['$shopName', 'Dukaan Store'] },
+              phone: { $ifNull: ['$phone', ''] },
               subscription: {
                 plan: '$subPlan',
                 status: '$subStat',
                 expiresAt: '$expiresAt',
-                amount: { $ifNull: ['$effectiveSub.amount', 0] },
-                billingCycle: '$effectiveSub.billing_cycle',
+                amount: { $ifNull: ['$subscription.amount', 0] },
+                billingCycle: '$subscription.billingCycle',
               },
-              monthlyRevenue: 1,
-              totalTransactions: 1,
+              monthlyRevenue: { $ifNull: ['$monthlyRevenue', 0] },
+              totalTransactions: { $ifNull: ['$totalTransactions', 0] },
               lastActivity: 1,
               lastWaMessageSentAt: 1,
               createdAt: 1,

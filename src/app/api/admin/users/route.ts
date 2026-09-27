@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const now = new Date();
 
     const pipeline = buildUsersListPipeline(params, now);
-    const [result] = await db.collection(COLLECTIONS.USERS).aggregate(pipeline).toArray();
+    const [result] = await db.collection(COLLECTIONS.CURRENT_USERS).aggregate(pipeline).toArray();
 
     const totalUsers = result?.metadata?.[0]?.totalUsers ?? 0;
     const totalPages = Math.max(1, Math.ceil(totalUsers / params.limit));
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
     if (params.page > totalPages && totalUsers > 0) {
       const correctedPipeline = buildUsersListPipeline({ ...params, page: totalPages }, now);
-      const [corrected] = await db.collection(COLLECTIONS.USERS).aggregate(correctedPipeline).toArray();
+      const [corrected] = await db.collection(COLLECTIONS.CURRENT_USERS).aggregate(correctedPipeline).toArray();
       users = corrected?.data ?? [];
     }
 

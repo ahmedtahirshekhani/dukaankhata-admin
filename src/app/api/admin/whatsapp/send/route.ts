@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     } else if (Array.isArray(userIds) && userIds.length > 0) {
       const objectIds = userIds.map((id: string) => toObjectId(id));
       const usersDocs = await db
-        .collection(COLLECTIONS.USERS)
+        .collection(COLLECTIONS.CURRENT_USERS)
         .find({ _id: { $in: objectIds } })
         .toArray();
 

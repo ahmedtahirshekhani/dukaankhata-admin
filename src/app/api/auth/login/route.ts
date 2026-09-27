@@ -38,21 +38,7 @@ export async function POST(request: Request) {
       const insertRes = await db.collection(COLLECTIONS.USERS).insertOne(newAdmin);
       user = { _id: insertRes.insertedId, ...newAdmin };
 
-      // Ensure active subscription for admin
-      await db.collection(COLLECTIONS.SUBSCRIPTIONS).updateOne(
-        { user_id: user._id },
-        {
-          $set: {
-            user_id: user._id,
-            email: adminEmailEnv,
-            plan: 'enterprise',
-            status: 'active',
-            expiry_date: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000),
-            updated_at: new Date(),
-          },
-        },
-        { upsert: true }
-      );
+
     }
 
     if (!user) {

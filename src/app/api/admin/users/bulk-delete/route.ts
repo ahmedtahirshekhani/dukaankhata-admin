@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS, toObjectId } from '@/lib/db/mongodb';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
-import { isMerchantDeletable, purgeMerchantData } from '@/lib/admin/purge-user';
 
 async function checkAdmin() {
   const cookieStore = await cookies();
@@ -32,7 +31,6 @@ export async function POST(request: Request) {
     }
 
     const db = await getDatabase();
-    const now = new Date();
 
     const deleted: string[] = [];
     const failed: { id: string; error: string }[] = [];
@@ -51,7 +49,7 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const user = await db.collection(COLLECTIONS.USERS).findOne({ _id: userObjectId });
+      const user = await db.collection(COLLECTIONS.CURRENT_USERS).findOne({ _id: userObjectId });
       if (!user) {
         failed.push({ id: rawId, error: 'User not found' });
         continue;
@@ -62,16 +60,36 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const deletable = await isMerchantDeletable(db, user as any, now);
-      if (!deletable) {
-        failed.push({
-          id: rawId,
-          error: 'Merchant is not eligible for deletion',
-        });
-        continue;
-      }
+      // Archive to leads_deleted
+      const leadRecord = {
+        originalUserId: (user.originalUserId || userObjectId).toString(),
+        name: user.name || 'Unknown',
+        email: user.email || '',
+        phone: user.phone || '',
+        company: user.shopName || 'N/A',
+        role: user.role || 'user',
+        userStatus: user.status || 'active',
+        subscriptionPlan: user.subscription?.plan || 'trial',
+        subscriptionStatus: user.subscription?.status || 'expired',
+        lastActivity: user.lastActivity || null,
+        createdAt: user.createdAt || null,
+        deletedAt: new Date(),
+      };
 
-      await purgeMerchantData(db, userObjectId, user.email);
+      await db.collection(COLLECTIONS.LEADS_DELETED).insertOne(leadRecord);
+
+      // Delete from current_users and whatsapp_logs
+      await Promise.all([
+        db.collection(COLLECTIONS.CURRENT_USERS).deleteOne({ _id: userObjectId }),
+        db.collection(COLLECTIONS.WHATSAPP_LOGS).deleteMany({
+          $or: [
+            { userId: userObjectId.toString() },
+            { userId: userObjectId },
+            ...(user.phone ? [{ phone: user.phone }] : []),
+          ],
+        }),
+      ]);
+
       deleted.push(user.name || user.email || rawId);
     }
 
