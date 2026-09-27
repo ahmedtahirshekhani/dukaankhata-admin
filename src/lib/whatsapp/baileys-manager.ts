@@ -1,9 +1,9 @@
 import path from 'path';
 import fs from 'fs';
 import QRCode from 'qrcode';
-import { formatWhatsAppPhone, replaceTemplateVariables, RecipientUser } from './phone-utils';
+import { formatWhatsAppPhone, replaceTemplateVariables, parseSpintax, RecipientUser } from './phone-utils';
 
-export { formatWhatsAppPhone, replaceTemplateVariables, type RecipientUser };
+export { formatWhatsAppPhone, replaceTemplateVariables, parseSpintax, type RecipientUser };
 
 export type WhatsAppStatus = 'disconnected' | 'connecting' | 'qr_ready' | 'connected' | 'error';
 
@@ -300,18 +300,32 @@ export async function sendSingleWhatsAppMessage(
 
 export async function sendBulkWhatsAppMessages(
   recipients: RecipientUser[],
-  templateText: string,
-  delayMs = 1500
+  templateInput: string | string[],
+  delayMs = 1500,
+  minDelayMs?: number,
+  maxDelayMs?: number
 ): Promise<{ total: number; sentCount: number; failCount: number; results: SendResult[] }> {
   const results: SendResult[] = [];
   let sentCount = 0;
   let failCount = 0;
 
+  const variants = Array.isArray(templateInput)
+    ? templateInput.filter((v) => v && v.trim())
+    : templateInput
+    ? [templateInput]
+    : [];
+
+  if (variants.length === 0) {
+    throw new Error('No valid message template or variants provided.');
+  }
+
   for (let i = 0; i < recipients.length; i++) {
     const user = recipients[i];
     const rawPhone = user.phone || user.whatsapp || (user as any).mobile || '';
     const cleanPhone = formatWhatsAppPhone(rawPhone);
-    const msg = replaceTemplateVariables(templateText, user);
+
+    const randomVariant = variants[Math.floor(Math.random() * variants.length)];
+    const msg = parseSpintax(replaceTemplateVariables(randomVariant, user));
 
     if (!cleanPhone) {
       const failedRes: SendResult = {
@@ -348,8 +362,14 @@ export async function sendBulkWhatsAppMessages(
     }
 
     // Delay between bulk messages to prevent spam detection
-    if (i < recipients.length - 1 && delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (i < recipients.length - 1) {
+      let waitMs = delayMs;
+      if (typeof minDelayMs === 'number' && typeof maxDelayMs === 'number' && maxDelayMs >= minDelayMs && minDelayMs > 0) {
+        waitMs = Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1)) + minDelayMs;
+      }
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
     }
   }
 

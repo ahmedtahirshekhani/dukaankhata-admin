@@ -47,3 +47,15 @@ export function replaceTemplateVariables(template: string, user: RecipientUser):
 
   return result;
 }
+
+export function parseSpintax(text: string): string {
+  if (!text) return '';
+  return text.replace(/\{([^{}]+)\}/g, (match, choicesStr) => {
+    if (choicesStr.includes('|')) {
+      const choices = choicesStr.split('|');
+      return choices[Math.floor(Math.random() * choices.length)].trim();
+    }
+    return match;
+  });
+}
+

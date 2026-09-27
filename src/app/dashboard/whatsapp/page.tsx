@@ -21,12 +21,14 @@ import {
   Check,
   Ban,
   Shield,
-  Layers,
-  ChevronRight,
-  Copy,
+  Dices,
+  Shuffle,
+  Plus,
+  Trash2,
+  StopCircle,
 } from 'lucide-react';
-import { formatDisplayDate } from '@/lib/format-date';
-import { formatWhatsAppPhone } from '@/lib/whatsapp/phone-utils';
+import { formatDisplayDate, formatTimeAgo } from '@/lib/format-date';
+import { formatWhatsAppPhone, parseSpintax, replaceTemplateVariables } from '@/lib/whatsapp/phone-utils';
 
 interface User {
   _id: string;
@@ -36,6 +38,7 @@ interface User {
   status: string;
   shopName?: string;
   phone?: string;
+  lastWaMessageSentAt?: string;
   subscription?: {
     plan?: string;
     status?: string;
@@ -83,28 +86,46 @@ const TEMPLATE_VARIABLES = [
   { label: 'Plan', tag: '{plan}' },
   { label: 'Expiry Date', tag: '{expiresAt}' },
   { label: 'Revenue', tag: '{monthlyRevenue}' },
+  { label: 'Spintax Greeting', tag: '{Assalam o Alaikum|Hello|Salam}' },
 ];
 
 const QUICK_TEMPLATES = [
   {
-    title: '🎉 Welcome New Merchant',
-    text: 'Assalam o Alaikum {name} - {shopName}! 🎉\n\nWelcome to Dukaankhata! 🥳\nAb aapki dukaandari aur hisaab-kitaab properly manage hone wala hai. 😎\n\nPlease iss application ko ziyada mat use kijiyega...\nwarna aapki dukaandari itni smoothly manage hone lagegi ke phir “hisaab nahi mil raha” ka bahana bhi nahi chalega. 😂\n\nAur agar app use karte hue koi bhi sawal, confusion ya help chahiye ho, toh feel free to WhatsApp us:\n\n📞 Customer Support: 0335-2575725 (Kashan Shekhani)\n📞 Customer Support: 0335-2787275 (Hammad Shekhani)\n📞 Help & Support: 0321-2575665\n\nAapki dukaandari ko easy banana humari first priority hai —\nkyun ke hisaab manage karna mushkil nahi hona chahiye, customers already kaafi hain. 😂\n\nShukriya,\nDukaanKhata Team 💙',
+    title: '🎉 Welcome New Merchant (3 Variants)',
+    variants: [
+      'Assalam o Alaikum {name} - {shopName}! 🎉\n\nWelcome to Dukaankhata! 🥳\nAb aapki dukaandari aur hisaab-kitaab properly manage hone wala hai. 😎\n\nPlease iss application ko ziyada mat use kijiyega...\nwarna aapki dukaandari itni smoothly manage hone lagegi ke phir “hisaab nahi mil raha” ka bahana bhi nahi chalega. 😂\n\nAur agar app use karte hue koi bhi sawal, confusion ya help chahiye ho, toh feel free to WhatsApp us:\n\n📞 Customer Support: 0335-2575725 (Kashan Shekhani)\n📞 Customer Support: 0335-2787275 (Hammad Shekhani)\n📞 Help & Support: 0321-2575665\n\nAapki dukaandari ko easy banana humari first priority hai —\nkyun ke hisaab manage karna mushkil nahi hona chahiye, customers already kaafi hain. 😂\n\nShukriya,\nDukaanKhata Team 💙',
+      'Assalam o Alaikum {name}! 👋\n\nDukaanKhata par account create karne ka bohot bohot shukriya! {shopName} ka hisaab-kitaab ab automatic aur 100% safe rahega.\n\nAgar aap ko app run karte huay koi bhi help ya guide chahiye ho, to aap kisi bhi waqt support team se rabta kar sakte hain:\n\n📞 Support: 0335-2575725 (Kashan Shekhani)\n📞 Support: 0335-2787275 (Hammad Shekhani)\n\nBest regards,\nDukaanKhata Team 💙',
+      'Dear {name} ({shopName}), Welcome to DukaanKhata! 🚀\n\nAap ka merchant account active ho chuka hai. Daily sales, customer khata balance aur payment receipts ab mobile par easily manage kijiye.\n\nSupport & Help desk:\n📞 0335-2575725\n📞 0335-2787275\n\nHave a profitable and successful day ahead!',
+    ],
   },
   {
-    title: '💬 Churned Merchant Re-Engagement (Win-Back)',
-    text: 'Assalam o Alaikum {name} ({shopName})! 👋\n\nHum ne notice kiya ke aap ne kuch dino se DukaanKhata app check nahi ki.\n\nAap ki dukaandari ke hisaab-kitaab ko aasan banana humari pehli tarjeeh hai. App mein naye features add hue hain jisse aap ki daily sales aur bahi-khata mazeed tez ho jaye ga!\n\nAaj hi app kholain aur apna hisaab up-to-date karain: https://dukaankhata.app\n\nAgar koi problem aa rahi hai toh humse direct baat karain:\n📞 Support: 0335-2575725 (Kashan Shekhani)\n📞 Support: 0335-2787275 (Hammad Shekhani)\n\nShukriya,\nDukaanKhata Team 💙',
+    title: '💬 Churned Win-Back (3 Variants)',
+    variants: [
+      'Assalam o Alaikum {name} ({shopName})! 👋\n\nHum ne notice kiya ke aap ne kuch dino se DukaanKhata app check nahi ki.\n\nAap ki dukaandari ke hisaab-kitaab ko aasan banana humari pehli tarjeeh hai. App mein naye features add hue hain jisse aap ki daily sales aur hisaab-khata mazeed tez ho jaye ga!\n\nAaj hi app kholain aur apna hisaab up-to-date karain: https://dukaankhata.app\n\nAgar koi problem aa rahi hai toh humse direct baat karain:\n📞 Support: 0335-2575725\n\nShukriya,\nDukaanKhata Team 💙',
+      'Hey {name}! {shopName} ka khata balance up-to-date hai? 🛍️\n\nHum ne DukaanKhata mein new updates add ki hain jisse daily ledger records aur PDF invoices bohot fast ban jate hain. Log in now at https://dukaankhata.app\n\nNeed assistance? Call/WhatsApp: 0335-2575725',
+      'Assalam o Alaikum {name},\n\nAap ke shop {shopName} ka hisaab-khata pending hai. Simply open DukaanKhata app to record your transactions hassle-free.\n\n📞 Support: 0335-2575725',
+    ],
   },
   {
-    title: 'Payment Reminder',
-    text: 'Assalam o Alaikum {name},\n\nFriendly reminder: Your DukaanKhata {plan} plan is active for {shopName}. Please ensure your account balance or renewal is up to date.\n\nThank you!',
+    title: 'Payment Reminder (2 Variants)',
+    variants: [
+      'Assalam o Alaikum {name},\n\nFriendly reminder: Your DukaanKhata {plan} plan is active for {shopName}. Please ensure your account balance or renewal is up to date.\n\nThank you!',
+      'Hello {name}! 👋\n\nThis is a friendly reminder regarding your {shopName} subscription ({plan} plan). Please renew your plan to continue uninterrupted service.\n\nRegards,\nDukaanKhata Team',
+    ],
   },
   {
-    title: 'Pro Feature Upgrade',
-    text: 'Hello {name} ({shopName}),\n\nUpgrade to DukaanKhata Pro to unlock unlimited transactions, priority WhatsApp support, and custom PDF invoices!\n\nBest regards,\nDukaanKhata Team',
+    title: 'Pro Feature Upgrade (2 Variants)',
+    variants: [
+      'Hello {name} ({shopName}),\n\nUpgrade to DukaanKhata Pro to unlock unlimited transactions, priority WhatsApp support, and custom PDF invoices!\n\nBest regards,\nDukaanKhata Team',
+      'Assalam o Alaikum {name}! 🚀\n\nTake {shopName} to the next level with DukaanKhata Pro. Enjoy automated customer alerts, PDF reports, and priority 24/7 support.',
+    ],
   },
   {
-    title: 'General Update',
-    text: 'Dear {name},\n\nWe have updated the DukaanKhata app with exciting new features for your shop {shopName}.\n\nLog in today to check them out!',
+    title: 'General Update (2 Variants)',
+    variants: [
+      'Dear {name},\n\nWe have updated the DukaanKhata app with exciting new features for your shop {shopName}.\n\nLog in today to check them out!',
+      'Assalam o Alaikum {name}! 👋\n\nNew feature alert for {shopName}! Open your DukaanKhata app today to see what\'s new.',
+    ],
   },
 ];
 
@@ -130,13 +151,29 @@ export default function WhatsAppAdminPage() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState('');
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
-  const [showAllPreview, setShowAllPreview] = useState(false);
 
-  // Message & Send State
-  const [message, setMessage] = useState(QUICK_TEMPLATES[0].text);
+  // Message Variants State
+  const [variants, setVariants] = useState<string[]>(QUICK_TEMPLATES[0].variants);
+  const [activeVariantTab, setActiveVariantTab] = useState<number>(0);
+
+  // Anti-Spam & Delay Settings State (Default: Random Gap between 30-60 seconds)
+  const [useRandomDelay, setUseRandomDelay] = useState<boolean>(true);
+  const [minDelaySec, setMinDelaySec] = useState<number>(30);
+  const [maxDelaySec, setMaxDelaySec] = useState<number>(60);
   const [forceSend, setForceSend] = useState(false);
+
+  // Live Dispatch Progress State
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState<{ total: number; sent: number; fail: number } | null>(null);
+  const [countdownSec, setCountdownSec] = useState<number>(0);
+  const [currentSendingInfo, setCurrentSendingInfo] = useState<{
+    currentIndex: number;
+    total: number;
+    name: string;
+    variantIdx: number;
+  } | null>(null);
+  const cancelSendingRef = useRef<boolean>(false);
+
   const [sendResultMsg, setSendResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [testPhone, setTestPhone] = useState('03352575725');
   const [sendingTest, setSendingTest] = useState(false);
@@ -241,17 +278,40 @@ export default function WhatsAppAdminPage() {
     }
   };
 
-  // Insert template variable into text field
+  // Variant editing handlers
+  const handleUpdateVariant = (index: number, val: string) => {
+    setVariants((prev) => {
+      const copy = [...prev];
+      copy[index] = val;
+      return copy;
+    });
+  };
+
+  const handleAddVariant = () => {
+    if (variants.length >= 5) return;
+    setVariants((prev) => [...prev, '']);
+    setActiveVariantTab(variants.length);
+  };
+
+  const handleRemoveVariant = (index: number) => {
+    if (variants.length <= 1) return;
+    setVariants((prev) => prev.filter((_, idx) => idx !== index));
+    if (activeVariantTab >= index && activeVariantTab > 0) {
+      setActiveVariantTab(activeVariantTab - 1);
+    }
+  };
+
+  // Insert template variable into active variant text field
   const handleInsertVariable = (tag: string) => {
+    const currentText = variants[activeVariantTab] || '';
     if (!textareaRef.current) {
-      setMessage((prev) => prev + ' ' + tag);
+      handleUpdateVariant(activeVariantTab, currentText + ' ' + tag);
       return;
     }
     const start = textareaRef.current.selectionStart;
     const end = textareaRef.current.selectionEnd;
-    const text = message;
-    const newText = text.substring(0, start) + tag + text.substring(end);
-    setMessage(newText);
+    const newText = currentText.substring(0, start) + tag + currentText.substring(end);
+    handleUpdateVariant(activeVariantTab, newText);
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
@@ -306,13 +366,43 @@ export default function WhatsAppAdminPage() {
       );
     }
 
-    return result;
+    // Sort logic:
+    // 1. Valid Phone + Never Sent -> Super Top (Tier 1) - Sorted by highest last seen (lastActivity desc)
+    // 2. Valid Phone + Previously Sent -> Next (Tier 2) - Sorted by highest last seen (lastActivity desc)
+    // 3. No Phone -> Very bottom (Tier 3)
+    return [...result].sort((a, b) => {
+      const aPhoneClean = formatWhatsAppPhone(a.phone || (a as any).whatsapp || (a as any).mobile || '');
+      const bPhoneClean = formatWhatsAppPhone(b.phone || (b as any).whatsapp || (b as any).mobile || '');
+
+      const aHasPhone = aPhoneClean.length >= 10;
+      const bHasPhone = bPhoneClean.length >= 10;
+
+      const aTier = !aHasPhone ? 3 : !a.lastWaMessageSentAt ? 1 : 2;
+      const bTier = !bHasPhone ? 3 : !b.lastWaMessageSentAt ? 1 : 2;
+
+      if (aTier !== bTier) {
+        return aTier - bTier;
+      }
+
+      // Within the same tier, sort by highest last seen (lastActivity desc)
+      const aActivity = a.lastActivity
+        ? new Date(a.lastActivity).getTime()
+        : a.createdAt
+        ? new Date(a.createdAt).getTime()
+        : 0;
+      const bActivity = b.lastActivity
+        ? new Date(b.lastActivity).getTime()
+        : b.createdAt
+        ? new Date(b.createdAt).getTime()
+        : 0;
+
+      return bActivity - aActivity;
+    });
   }, [users, targetFilter, userSearch]);
 
   const matchingFilterUsers = getMatchingFilterUsers();
 
   // Final Target Recipients (max 20 users):
-  // If specific users are checked, use selectedUserIds (max 20). Otherwise default to top 20 matching users.
   const getFilteredRecipients = useCallback(() => {
     if (selectedUserIds.size > 0) {
       return users.filter((u) => selectedUserIds.has(u._id)).slice(0, 20);
@@ -354,12 +444,26 @@ export default function WhatsAppAdminPage() {
     }
   };
 
-  // Send Bulk WhatsApp Messages via socket
+  // Stop dispatch execution
+  const handleStopSending = () => {
+    cancelSendingRef.current = true;
+  };
+
+  // Send Bulk WhatsApp Messages with random gap (10-20s) and random variants
   const handleSendMessages = async () => {
     if (waState.status !== 'connected') {
       setSendResultMsg({
         type: 'error',
         text: 'WhatsApp is not connected. Please scan the QR code first.',
+      });
+      return;
+    }
+
+    const activeVariants = variants.map((v) => v.trim()).filter(Boolean);
+    if (activeVariants.length === 0) {
+      setSendResultMsg({
+        type: 'error',
+        text: 'Please enter at least one message variant to send.',
       });
       return;
     }
@@ -372,63 +476,116 @@ export default function WhatsAppAdminPage() {
       return;
     }
 
-    if (!message.trim()) {
-      setSendResultMsg({ type: 'error', text: 'Please enter a message to send.' });
-      return;
-    }
-
     setSending(true);
+    cancelSendingRef.current = false;
     setSendResultMsg(null);
     setSendProgress({ total: validRecipients.length, sent: 0, fail: 0 });
 
-    try {
-      const res = await fetch('/api/admin/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipients: validRecipients,
-          message,
-          delayMs: 1200,
-          forceSend,
-        }),
-      });
+    let sentCount = 0;
+    let failCount = 0;
+    let skippedCount = 0;
 
-      const data = await res.json();
-      if (data.success) {
-        let msg = `Successfully dispatched to ${data.sentCount} users!`;
-        if (data.skippedCount > 0) {
-          msg += ` (${data.skippedCount} skipped due to 7-day frequency rule)`;
-        }
-        if (data.failCount > 0) {
-          msg += ` (${data.failCount} failed)`;
-        }
-
-        setSendResultMsg({
-          type: 'success',
-          text: msg,
-        });
-        if (data.results) {
-          setWaLogs((prev) => [...data.results, ...prev]);
-        }
-      } else {
+    for (let i = 0; i < validRecipients.length; i++) {
+      if (cancelSendingRef.current) {
         setSendResultMsg({
           type: 'error',
-          text: data.error || 'Failed to send WhatsApp messages.',
+          text: `Broadcast cancelled by admin. Sent ${sentCount} of ${validRecipients.length} messages.`,
         });
+        break;
       }
-    } catch (err: any) {
-      setSendResultMsg({
-        type: 'error',
-        text: err.message || 'Error occurred while sending messages.',
+
+      const user = validRecipients[i];
+      const variantIdx = Math.floor(Math.random() * activeVariants.length);
+      const chosenVariant = activeVariants[variantIdx];
+
+      setCurrentSendingInfo({
+        currentIndex: i + 1,
+        total: validRecipients.length,
+        name: user.name,
+        variantIdx: variantIdx + 1,
       });
-    } finally {
-      setSending(false);
-      setSendProgress(null);
-      fetchStatus();
+
+      try {
+        const res = await fetch('/api/admin/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipients: [user],
+            variants: [chosenVariant],
+            forceSend,
+          }),
+        });
+
+        const data = await res.json();
+        const nowIso = new Date().toISOString();
+        if (data.success && data.sentCount > 0) {
+          sentCount++;
+          if (data.results?.[0]) {
+            setWaLogs((prev) => [data.results[0], ...prev]);
+          }
+          // Update lastWaMessageSentAt locally for live UI updates
+          setUsers((prevUsers) =>
+            prevUsers.map((u) =>
+              u._id === user._id || u.phone === user.phone
+                ? { ...u, lastWaMessageSentAt: nowIso }
+                : u
+            )
+          );
+        } else if (data.skippedCount > 0) {
+          skippedCount++;
+        } else {
+          failCount++;
+          if (data.results?.[0]) {
+            setWaLogs((prev) => [data.results[0], ...prev]);
+          }
+        }
+      } catch (err: any) {
+        failCount++;
+      }
+
+      setSendProgress({
+        total: validRecipients.length,
+        sent: sentCount,
+        fail: failCount,
+      });
+
+      // If not last recipient and not cancelled, wait random gap (30s to 60s)
+      if (i < validRecipients.length - 1 && !cancelSendingRef.current) {
+        let gapSec = minDelaySec;
+        if (useRandomDelay) {
+          const minS = Math.max(1, Number(minDelaySec) || 30);
+          const maxS = Math.max(minS, Number(maxDelaySec) || 60);
+          gapSec = Math.floor(Math.random() * (maxS - minS + 1)) + minS;
+        }
+
+        for (let s = gapSec; s > 0; s--) {
+          if (cancelSendingRef.current) break;
+          setCountdownSec(s);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        setCountdownSec(0);
+      }
+    }
+
+    setSending(false);
+    setSendProgress(null);
+    setCurrentSendingInfo(null);
+    setCountdownSec(0);
+    fetchStatus();
+
+    if (!cancelSendingRef.current) {
+      let msg = `Broadcast complete! Dispatched to ${sentCount} merchants with random gap (${minDelaySec}-${maxDelaySec}s) & variants.`;
+      if (skippedCount > 0) msg += ` (${skippedCount} skipped due to 15-day frequency rule)`;
+      if (failCount > 0) msg += ` (${failCount} failed)`;
+
+      setSendResultMsg({
+        type: 'success',
+        text: msg,
+      });
     }
   };
 
-  // Send Single Test WhatsApp Message to any 03xx phone number
+  // Send Single Test WhatsApp Message using random variant selection
   const handleSendTestMessage = async () => {
     if (waState.status !== 'connected') {
       setTestResult({
@@ -447,8 +604,9 @@ export default function WhatsAppAdminPage() {
       return;
     }
 
-    if (!message.trim()) {
-      setTestResult({ type: 'error', text: 'Please enter a message to send.' });
+    const activeVariants = variants.map((v) => v.trim()).filter(Boolean);
+    if (activeVariants.length === 0) {
+      setTestResult({ type: 'error', text: 'Please enter a message variant to send.' });
       return;
     }
 
@@ -470,7 +628,7 @@ export default function WhatsAppAdminPage() {
               expiresAt: '2026-12-31',
             },
           ],
-          message,
+          variants: activeVariants,
           forceSend: true,
         }),
       });
@@ -506,12 +664,9 @@ export default function WhatsAppAdminPage() {
     const rawPhone = target.phone || (target as any).whatsapp || (target as any).mobile || '';
     const cleanPhone = formatWhatsAppPhone(rawPhone);
 
-    const formattedMsg = message
-      .replace(/\{name\}/gi, target.name || '')
-      .replace(/\{shopName\}/gi, target.shopName || '')
-      .replace(/\{email\}/gi, target.email || '')
-      .replace(/\{plan\}/gi, target.subscription?.plan || 'Free')
-      .replace(/\{expiresAt\}/gi, target.subscription?.expiresAt || 'N/A');
+    const activeVariants = variants.map((v) => v.trim()).filter(Boolean);
+    const chosenVariant = activeVariants[activeVariantTab] || activeVariants[0] || '';
+    const formattedMsg = parseSpintax(replaceTemplateVariables(chosenVariant, target));
 
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formattedMsg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -527,13 +682,15 @@ export default function WhatsAppAdminPage() {
     monthlyRevenue: 150000,
   };
 
-  const samplePreviewText = message
-    .replace(/\{name\}/gi, previewUser.name || 'Sample User')
-    .replace(/\{shopName\}/gi, previewUser.shopName || (previewUser as any).resolvedShopName || 'My Shop')
-    .replace(/\{email\}/gi, previewUser.email || 'user@example.com')
-    .replace(/\{plan\}/gi, previewUser.subscription?.plan || (previewUser as any).plan || 'Pro')
-    .replace(/\{expiresAt\}/gi, previewUser.subscription?.expiresAt || (previewUser as any).expiresAt || '2026-10-15')
-    .replace(/\{monthlyRevenue\}/gi, `Rs. ${previewUser.monthlyRevenue || 0}`);
+  const getSamplePreviewText = (variantIdx: number) => {
+    const rawText = variants[variantIdx] || variants[0] || '';
+    const replaced = replaceTemplateVariables(rawText, previewUser);
+    return parseSpintax(replaced);
+  };
+
+  // Estimated Total Broadcast Duration
+  const estimatedMinTotalSec = validRecipients.length * (useRandomDelay ? minDelaySec : minDelaySec);
+  const estimatedMaxTotalSec = validRecipients.length * (useRandomDelay ? maxDelaySec : minDelaySec);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -547,13 +704,13 @@ export default function WhatsAppAdminPage() {
           <div className="space-y-2">
             <div className="inline-flex items-center space-x-2 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold text-emerald-100">
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>Admin Messaging Suite</span>
+              <span>Admin Messaging Suite & Anti-Spam Engine</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-              WhatsApp Broadcast & QR Connection
+              WhatsApp Broadcast & Random Variant Engine
             </h1>
             <p className="text-emerald-100 text-xs md:text-sm max-w-2xl leading-relaxed">
-              Connect your WhatsApp account via QR Code scan to send automated updates, renewal reminders, and broadcast messages directly to DukaanKhata merchants.
+              Connect your WhatsApp account to send automated broadcasts with <strong>random 30–60s gap delays</strong> and <strong>2–3 message variants</strong> to prevent WhatsApp rate limits & account bans.
             </p>
           </div>
 
@@ -561,7 +718,7 @@ export default function WhatsAppAdminPage() {
             <button
               onClick={fetchStatus}
               disabled={loadingStatus}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white text-xs font-semibold rounded-xl transition flex items-center space-x-2 shadow-sm"
+              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white text-xs font-semibold rounded-xl transition flex items-center space-x-2 shadow-xs"
             >
               <RefreshCw className={`w-4 h-4 ${loadingStatus ? 'animate-spin' : ''}`} />
               <span>Refresh Status</span>
@@ -594,7 +751,7 @@ export default function WhatsAppAdminPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: QR Code & Connection Status Card */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center">
@@ -658,7 +815,7 @@ export default function WhatsAppAdminPage() {
                     <button
                       onClick={handleDisconnect}
                       disabled={disconnecting}
-                      className="px-4 py-2 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 text-xs font-semibold rounded-xl transition shadow-xs"
+                      className="px-4 py-2 bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 text-xs font-semibold rounded-xl transition shadow-2xs"
                     >
                       Disconnect Device
                     </button>
@@ -720,15 +877,15 @@ export default function WhatsAppAdminPage() {
 
         {/* Right Column: Message Composer & Recipient Selector */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-600 flex items-center justify-center">
                   <Send className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-sm">Message Broadcaster</h3>
-                  <p className="text-[11px] text-slate-500 font-medium">Compose and send formatted WhatsApp text</p>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Message Broadcaster & Variant Engine</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">Compose 2–3 variants & set random gaps</p>
                 </div>
               </div>
 
@@ -749,7 +906,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('all')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'all'
-                      ? 'bg-sky-600 text-white shadow-xs'
+                      ? 'bg-sky-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -758,7 +915,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('new7')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'new7'
-                      ? 'bg-teal-600 text-white shadow-xs'
+                      ? 'bg-teal-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -777,7 +934,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('active')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'active'
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -786,7 +943,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('pro')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'pro'
-                      ? 'bg-amber-500 text-white shadow-xs'
+                      ? 'bg-amber-500 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -795,7 +952,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('free')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'free'
-                      ? 'bg-slate-700 text-white shadow-xs'
+                      ? 'bg-slate-700 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -804,7 +961,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('inactive7')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive7'
-                      ? 'bg-purple-600 text-white shadow-xs'
+                      ? 'bg-purple-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -821,7 +978,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={() => handleTargetFilterChange('inactive15')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive15'
-                      ? 'bg-orange-600 text-white shadow-xs'
+                      ? 'bg-orange-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -836,43 +993,9 @@ export default function WhatsAppAdminPage() {
                   )
                 </button>
                 <button
-                  onClick={() => handleTargetFilterChange('inactive30')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive30'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
-                >
-                  Inactive (1 Month+) (
-                  {
-                    users.filter((u) => {
-                      const ago = new Date();
-                      ago.setDate(ago.getDate() - 30);
-                      return !u.lastActivity || new Date(u.lastActivity) <= ago;
-                    }).length
-                  }
-                  )
-                </button>
-                <button
-                  onClick={() => handleTargetFilterChange('inactive90')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'inactive90'
-                      ? 'bg-red-700 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
-                >
-                  Inactive (3 Months+) (
-                  {
-                    users.filter((u) => {
-                      const ago = new Date();
-                      ago.setDate(ago.getDate() - 90);
-                      return !u.lastActivity || new Date(u.lastActivity) <= ago;
-                    }).length
-                  }
-                  )
-                </button>
-                <button
                   onClick={() => handleTargetFilterChange('custom')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${targetFilter === 'custom'
-                      ? 'bg-indigo-600 text-white shadow-xs'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
                 >
@@ -880,62 +1003,14 @@ export default function WhatsAppAdminPage() {
                 </button>
               </div>
 
-              {/* Logic Definition Tag Banner */}
-              <div className="p-3 bg-slate-50 border border-slate-200/90 rounded-xl text-xs flex items-start space-x-2.5">
-                <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-extrabold text-slate-900">Audience Logic Definition:</span>
-                    <span className="px-2 py-0.5 bg-sky-100 border border-sky-200 text-sky-800 rounded-md font-mono text-[11px] font-bold">
-                      logic: {targetFilter}
-                    </span>
-                  </div>
-                  <p className="text-slate-600 leading-relaxed text-[11px]">
-                    {targetFilter === 'all' && (
-                      <span>Includes all registered merchant accounts in database. You can check specific users below (max 20).</span>
-                    )}
-                    {targetFilter === 'new7' && (
-                      <span>Includes merchants who signed up in the last 7 days (<code className="font-mono text-teal-700 bg-teal-50 px-1 py-0.5 rounded">createdAt &gt;= 7 days ago</code>). Perfect for welcome messages!</span>
-                    )}
-                    {targetFilter === 'active' && (
-                      <span>Includes all active merchants except blocked/suspended accounts (<code className="font-mono text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded">status !== &apos;suspended&apos; &amp;&amp; status !== &apos;blocked&apos;</code>).</span>
-                    )}
-                    {targetFilter === 'inactive7' && (
-                      <span><strong>Churned Users (7+ Days)</strong>: Merchants whose last activity was 7 or more days ago (<code className="font-mono text-purple-700 bg-purple-50 px-1 py-0.5 rounded">lastActivity &lt;= 7 days ago</code>).</span>
-                    )}
-                    {targetFilter === 'inactive15' && (
-                      <span><strong>Churned Users (15+ Days)</strong>: Merchants whose last activity was 15 or more days ago (<code className="font-mono text-orange-700 bg-orange-50 px-1 py-0.5 rounded">lastActivity &lt;= 15 days ago</code>).</span>
-                    )}
-                    {targetFilter === 'inactive30' && (
-                      <span><strong>Churned Users (1 Month+)</strong>: Merchants whose last activity was 1 month (30 days) or more ago (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">lastActivity &lt;= 30 days ago</code>).</span>
-                    )}
-                    {targetFilter === 'inactive90' && (
-                      <span><strong>Dormant Churned Users (3 Months+)</strong>: Merchants whose last activity was 3 months (90 days) or more ago (<code className="font-mono text-red-800 bg-red-50 px-1 py-0.5 rounded">lastActivity &lt;= 90 days ago</code>).</span>
-                    )}
-                    {targetFilter === 'pro' && (
-                      <span>Includes merchants with an active Pro subscription (<code className="font-mono text-amber-700 bg-amber-50 px-1 py-0.5 rounded">subscription.plan === &apos;pro&apos;</code>).</span>
-                    )}
-                    {targetFilter === 'free' && (
-                      <span>Includes merchants on Free/Trial plans (<code className="font-mono text-slate-700 bg-slate-100 px-1 py-0.5 rounded">subscription.plan !== &apos;pro&apos;</code>).</span>
-                    )}
-                    {targetFilter === 'suspended' && (
-                      <span>Includes merchants whose accounts are blocked or suspended (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">status === &apos;suspended&apos; || status === &apos;blocked&apos;</code>).</span>
-                    )}
-                    {targetFilter === 'custom' && (
-                      <span>Allows hand-picking specific individual users (maximum 20 users allowed per message).</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* Selectable User Picker List (Always visible for selected target filter) */}
+              {/* User Picker & Preview List */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="relative flex-1">
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                     <input
                       type="text"
-                      placeholder={`Search ${matchingFilterUsers.length} matching merchant${matchingFilterUsers.length !== 1 ? 's' : ''} by name, shop or phone...`}
+                      placeholder={`Search ${matchingFilterUsers.length} matching merchant${matchingFilterUsers.length !== 1 ? 's' : ''}...`}
                       value={userSearch}
                       onChange={(e) => {
                         setUserSearch(e.target.value);
@@ -944,7 +1019,10 @@ export default function WhatsAppAdminPage() {
                       className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-500"
                     />
                   </div>
-                  <div className="flex items-center justify-between sm:justify-end space-x-3 shrink-0">
+                  <div className="flex items-center justify-between sm:justify-end space-x-2 shrink-0">
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-1 border border-emerald-200 rounded-lg">
+                      🔥 Priority: Never Sent Super Top (Highest Last Active)
+                    </span>
                     <span className="text-xs font-bold text-slate-600 bg-white px-2.5 py-1 border border-slate-200 rounded-lg">
                       Selected: <span className={selectedUserIds.size >= 20 ? 'text-amber-600 font-extrabold' : 'text-sky-600 font-extrabold'}>{selectedUserIds.size}</span> / 20
                     </span>
@@ -969,8 +1047,8 @@ export default function WhatsAppAdminPage() {
                     No merchants match the selected filter or search query.
                   </div>
                 ) : (
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {matchingFilterUsers.map((u) => {
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                    {matchingFilterUsers.slice(0, 50).map((u) => {
                       const isSelected = selectedUserIds.has(u._id);
                       const isLimitReached = selectedUserIds.size >= 20 && !isSelected;
                       const rawPh = u.phone || (u as any).whatsapp || (u as any).mobile || '';
@@ -987,7 +1065,6 @@ export default function WhatsAppAdminPage() {
                                 ? 'bg-sky-50 border-sky-200 text-sky-900 font-semibold cursor-pointer'
                                 : 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700 cursor-pointer'
                             }`}
-                          title={isLimitReached ? 'Maximum 20 users limit reached' : ''}
                         >
                           <div className="flex items-center space-x-2 overflow-hidden mr-2">
                             <input
@@ -1002,98 +1079,15 @@ export default function WhatsAppAdminPage() {
                           </div>
 
                           <div className="flex items-center space-x-2 shrink-0">
-                            {u.subscription?.plan === 'pro' ? (
-                              <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-full font-bold text-[10px]">
-                                PRO
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-semibold text-[10px]">
-                                Free
-                              </span>
-                            )}
-
                             {hasPhone ? (
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-mono text-[11px]">
-                                +{cleanPh}
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-md font-semibold text-[10px]">
-                                No Phone
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Target Audience User Preview Box (Shows matching merchants) */}
-              <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Users className="w-4 h-4 text-sky-600" />
-                    <span className="text-xs font-extrabold text-slate-900">
-                      Target Audience Preview ({targetRecipients.length} matching merchant{targetRecipients.length !== 1 ? 's' : ''})
-                    </span>
-                  </div>
-                  {targetRecipients.length > 5 && (
-                    <button
-                      onClick={() => setShowAllPreview(!showAllPreview)}
-                      className="text-xs text-sky-600 hover:text-sky-700 font-bold transition flex items-center space-x-1"
-                    >
-                      <span>{showAllPreview ? 'Show Less (5)' : `Show More (+${targetRecipients.length - 5})`}</span>
-                    </button>
-                  )}
-                </div>
-
-                {targetRecipients.length === 0 ? (
-                  <div className="p-3 text-center text-xs text-slate-500 font-medium bg-white rounded-lg border border-slate-200">
-                    No merchants match the selected filter.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {targetRecipients.slice(0, showAllPreview ? 30 : 5).map((u, idx) => {
-                      const rawPh = u.phone || (u as any).whatsapp || (u as any).mobile || '';
-                      const cleanPh = formatWhatsAppPhone(rawPh);
-                      const hasPhone = cleanPh.length >= 10;
-
-                      return (
-                        <div
-                          key={u._id || idx}
-                          className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between text-xs hover:border-sky-300 transition shadow-2xs"
-                        >
-                          <div className="flex items-center space-x-3 overflow-hidden">
-                            <div className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-[11px] shrink-0">
-                              {u.name ? u.name.charAt(0).toUpperCase() : 'M'}
-                            </div>
-                            <div className="truncate">
-                              <p className="font-bold text-slate-900 truncate">
-                                {u.name}{' '}
-                                {u.shopName && <span className="text-slate-500 font-normal">({u.shopName})</span>}
-                              </p>
-                              <p className="text-[10px] text-slate-400">
-                                Registered: {u.createdAt ? formatDisplayDate(u.createdAt) : 'N/A'}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-2 shrink-0">
-                            {u.subscription?.plan === 'pro' ? (
-                              <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-full font-bold text-[10px]">
-                                PRO
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-semibold text-[10px]">
-                                Free
-                              </span>
-                            )}
-
-                            {hasPhone ? (
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-mono text-[11px]">
-                                +{cleanPh}
-                              </span>
+                              <div className="flex flex-col items-end shrink-0">
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-mono text-[11px]">
+                                  +{cleanPh}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                                  Last sent: {formatTimeAgo(u.lastWaMessageSentAt)}
+                                </span>
+                              </div>
                             ) : (
                               <span className="px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-md font-semibold text-[10px]">
                                 No Phone
@@ -1108,17 +1102,20 @@ export default function WhatsAppAdminPage() {
               </div>
             </div>
 
-            {/* Preset Quick Templates */}
+            {/* Quick Preset Templates */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Quick Templates</span>
+                <span>Quick Multi-Variant Templates</span>
               </label>
               <div className="flex flex-wrap gap-2">
                 {QUICK_TEMPLATES.map((tmpl, idx) => (
                   <button
                     key={idx}
-                    onClick={() => setMessage(tmpl.text)}
+                    onClick={() => {
+                      setVariants([...tmpl.variants]);
+                      setActiveVariantTab(0);
+                    }}
                     className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition"
                   >
                     {tmpl.title}
@@ -1127,53 +1124,235 @@ export default function WhatsAppAdminPage() {
               </div>
             </div>
 
-            {/* Template Variables Pills */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Insert Dynamic Placeholder
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {TEMPLATE_VARIABLES.map((v) => (
-                  <button
-                    key={v.tag}
-                    onClick={() => handleInsertVariable(v.tag)}
-                    className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold rounded-md transition"
-                  >
-                    + {v.label} <span className="text-sky-500 text-[10px] font-mono">{v.tag}</span>
-                  </button>
+            {/* Multi-Variant Message Composer Tabs */}
+            <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Shuffle className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                    Message Variants ({variants.filter((v) => v.trim()).length} Active)
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {variants.length < 5 && (
+                    <button
+                      onClick={handleAddVariant}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1 shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Variant {variants.length + 1}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Variant Tabs Header */}
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+                {variants.map((v, idx) => (
+                  <div key={idx} className="flex items-center shrink-0">
+                    <button
+                      onClick={() => setActiveVariantTab(idx)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 border ${activeVariantTab === idx
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                    >
+                      <span>Variant {idx + 1}</span>
+                      {v.trim() ? (
+                        <span className={`w-2 h-2 rounded-full ${activeVariantTab === idx ? 'bg-emerald-200' : 'bg-emerald-500'}`} />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-slate-300" />
+                      )}
+                    </button>
+                    {variants.length > 1 && (
+                      <button
+                        onClick={() => handleRemoveVariant(idx)}
+                        className="ml-1 p-1 text-slate-400 hover:text-rose-600 transition"
+                        title="Remove Variant"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 ))}
+              </div>
+
+              {/* Insert Variables Pills */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                  Insert Variables into Variant {activeVariantTab + 1}:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {TEMPLATE_VARIABLES.map((v) => (
+                    <button
+                      key={v.tag}
+                      onClick={() => handleInsertVariable(v.tag)}
+                      className="px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold rounded-md transition"
+                    >
+                      + {v.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Textarea Editor for Active Variant */}
+              <div className="space-y-1">
+                <textarea
+                  ref={textareaRef}
+                  rows={5}
+                  value={variants[activeVariantTab] || ''}
+                  onChange={(e) => handleUpdateVariant(activeVariantTab, e.target.value)}
+                  placeholder={`Type Variant ${activeVariantTab + 1} text here. Use placeholders like {name}, {shopName} or Spintax {Salam|Hello}...`}
+                  className="w-full text-xs p-3.5 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-slate-800 leading-relaxed shadow-2xs"
+                />
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium px-1">
+                  <span>Variant {activeVariantTab + 1} of {variants.length}</span>
+                  <span>{(variants[activeVariantTab] || '').length} characters</span>
+                </div>
               </div>
             </div>
 
-            {/* Message Input Field */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
-                <span>Message Content</span>
-                <span className="text-[11px] text-slate-400 font-normal">{message.length} characters</span>
-              </label>
-              <textarea
-                ref={textareaRef}
-                rows={5}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type your WhatsApp message here. Use placeholders like {name}, {shopName}, {plan}..."
-                className="w-full text-xs p-3.5 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono text-slate-800 leading-relaxed shadow-xs"
-              />
+            {/* Anti-Spam Safeguards & Random Gap Configurator */}
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200/90 rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/60 pb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Dices className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-emerald-950 uppercase tracking-wider">
+                      Anti-Spam Delay Engine (Random Gap)
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 font-medium">
+                      Random intervals between messages prevent WhatsApp bans
+                    </p>
+                  </div>
+                </div>
+
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full font-bold text-xs flex items-center space-x-1.5 shrink-0">
+                  <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Random Gap: {minDelaySec}s – {maxDelaySec}s</span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-emerald-900 flex items-center space-x-1">
+                    <span>Minimum Gap (Seconds)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={minDelaySec}
+                    onChange={(e) => setMinDelaySec(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full text-xs px-3 py-2 bg-white border border-emerald-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-emerald-900 flex items-center space-x-1">
+                    <span>Maximum Gap (Seconds)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={minDelaySec}
+                    max={120}
+                    value={maxDelaySec}
+                    onChange={(e) => setMaxDelaySec(Math.max(minDelaySec, parseInt(e.target.value) || minDelaySec))}
+                    className="w-full text-xs px-3 py-2 bg-white border border-emerald-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-800 bg-white/70 p-3 rounded-xl border border-emerald-200">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    Estimated duration for <strong>{validRecipients.length} recipients</strong>: ~{estimatedMinTotalSec}s to {estimatedMaxTotalSec}s
+                  </span>
+                </div>
+
+                <label className="flex items-center space-x-2 font-bold cursor-pointer text-slate-900 select-none shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={forceSend}
+                    onChange={(e) => setForceSend(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                  />
+                  <span>Bypass 20 msgs/day & 15-day rules</span>
+                </label>
+              </div>
             </div>
 
-            {/* Live Sample Preview Box */}
-            <div className="bg-emerald-950/90 text-emerald-100 p-4 rounded-xl border border-emerald-800 space-y-2 shadow-inner">
+            {/* Live Message Sample Preview Box */}
+            <div className="bg-emerald-950/90 text-emerald-100 p-4 rounded-xl border border-emerald-800 space-y-3 shadow-inner">
               <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
                 <span className="flex items-center space-x-1.5">
                   <MessageSquare className="w-3.5 h-3.5" />
-                  <span>WhatsApp Message Preview</span>
+                  <span>Live Variant Preview ({variants.filter((v) => v.trim()).length} variants active)</span>
                 </span>
                 <span>Recipient: {previewUser.name}</span>
               </div>
-              <p className="text-xs font-sans whitespace-pre-wrap leading-relaxed text-emerald-50">
-                {samplePreviewText}
+
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1">
+                {variants.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveVariantTab(idx)}
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition ${activeVariantTab === idx
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-emerald-900/60 text-emerald-300 hover:bg-emerald-800'
+                      }`}
+                  >
+                    Preview Variant {idx + 1}
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-xs font-sans whitespace-pre-wrap leading-relaxed text-emerald-50 bg-emerald-900/40 p-3 rounded-lg border border-emerald-800/60">
+                {getSamplePreviewText(activeVariantTab)}
               </p>
             </div>
+
+            {/* Live Dispatch Countdown Overlay */}
+            {sending && (
+              <div className="p-4 bg-sky-50 border-2 border-sky-400 rounded-2xl space-y-3 animate-pulse">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <RefreshCw className="w-4 h-4 text-sky-600 animate-spin" />
+                    <span className="text-xs font-extrabold text-sky-950">
+                      Broadcasting ({sendProgress?.sent || 0} / {sendProgress?.total || 0} Sent)
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleStopSending}
+                    className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5"
+                  >
+                    <StopCircle className="w-3.5 h-3.5" />
+                    <span>Stop Broadcast</span>
+                  </button>
+                </div>
+
+                {currentSendingInfo && (
+                  <p className="text-xs text-sky-800 font-medium">
+                    Sending to <strong>{currentSendingInfo.name}</strong> ({currentSendingInfo.currentIndex} of {currentSendingInfo.total}) using <strong>Variant {currentSendingInfo.variantIdx}</strong>...
+                  </p>
+                )}
+
+                {countdownSec > 0 && (
+                  <div className="p-3 bg-white rounded-xl border border-sky-200 flex items-center justify-between text-xs text-sky-900 font-bold">
+                    <span className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4 text-sky-600 animate-spin" />
+                      <span>Random Gap Cooldown Active</span>
+                    </span>
+                    <span className="px-2.5 py-1 bg-sky-100 text-sky-800 rounded-md font-mono font-extrabold text-xs">
+                      ⏱️ Next message in {countdownSec}s
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Test WhatsApp Message Section */}
             <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
@@ -1181,7 +1360,7 @@ export default function WhatsAppAdminPage() {
                 <div className="flex items-center space-x-2">
                   <Smartphone className="w-4 h-4 text-emerald-700" />
                   <span className="text-xs font-extrabold text-emerald-900">
-                    Send Test WhatsApp Message (Any 03xx Number)
+                    Send Single Test WhatsApp Message (Any 03xx Number)
                   </span>
                 </div>
                 <span className="text-[11px] text-emerald-700 font-medium">Instant Single Test</span>
@@ -1200,7 +1379,7 @@ export default function WhatsAppAdminPage() {
                 <button
                   onClick={handleSendTestMessage}
                   disabled={sendingTest || !testPhone.trim() || waState.status !== 'connected'}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 shrink-0 disabled:opacity-50 shadow-xs"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 shrink-0 disabled:opacity-50 shadow-2xs"
                 >
                   {sendingTest ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                   <span>Send Test Message</span>
@@ -1241,45 +1420,6 @@ export default function WhatsAppAdminPage() {
               </div>
             )}
 
-            {/* Frequency Cooldown & Daily Limit Control */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
-                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Shield className="w-4 h-4 text-emerald-600" />
-                  <span>Broadcast Rate Limits & Safeguards</span>
-                </span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${todaySentCount >= dailyLimit
-                      ? 'bg-rose-100 border border-rose-300 text-rose-800'
-                      : 'bg-emerald-100 border border-emerald-300 text-emerald-800'
-                    }`}
-                >
-                  Daily Quota: {todaySentCount} / {dailyLimit} Sent Today
-                </span>
-              </div>
-
-              <label className="flex items-center space-x-2.5 text-xs text-slate-800 font-bold cursor-pointer select-none pt-1">
-                <input
-                  type="checkbox"
-                  checked={forceSend}
-                  onChange={(e) => setForceSend(e.target.checked)}
-                  className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
-                />
-                <span>Force Send (Bypass 20 msgs/day daily cap & 15-day user cooldown limit)</span>
-              </label>
-              <p className="text-[11px] text-slate-500 leading-relaxed pl-6">
-                {forceSend ? (
-                  <span className="text-amber-700 font-semibold">
-                    ⚠️ Override Active: All selected users will be sent this message regardless of daily limits or prior message timestamps.
-                  </span>
-                ) : (
-                  <span>
-                    🛡️ <strong>Safeguards Active</strong>: Max <strong>20 messages per day</strong>. Users who received a WhatsApp broadcast within the last <strong>15 days</strong> will be automatically skipped.
-                  </span>
-                )}
-              </p>
-            </div>
-
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
               <button
                 onClick={() => handleOpenDirectWeb()}
@@ -1308,7 +1448,7 @@ export default function WhatsAppAdminPage() {
       </div>
 
       {/* Sent Campaign History Logs Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">

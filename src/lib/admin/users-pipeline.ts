@@ -1,7 +1,7 @@
 import { COLLECTIONS } from '@/lib/db/mongodb';
 import { PENDING_PAYMENT_STATUSES } from '@/lib/subscriptions';
 
-export type UsersSortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt';
+export type UsersSortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt' | 'lastWaMessageSentAt';
 
 export interface UsersQueryParams {
   search: string;
@@ -23,6 +23,7 @@ const SORT_FIELD_MAP: Record<UsersSortField, string> = {
   revenue: 'monthlyRevenue',
   orders: 'totalTransactions',
   createdAt: 'createdAt',
+  lastWaMessageSentAt: 'lastWaMessageSentAt',
 };
 
 export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
@@ -262,10 +263,62 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
       },
     },
     {
+      $lookup: {
+        from: COLLECTIONS.WHATSAPP_LOGS,
+        let: { uid: '$_id', ph: '$resolvedPhone' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$status', 'sent'] },
+                  {
+                    $or: [
+                      { $eq: ['$userId', '$$uid'] },
+                      { $eq: ['$userId', { $toString: '$$uid' }] },
+                      { $eq: ['$phone', '$$ph'] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $sort: { sentAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: 'lastWaLogDoc',
+      },
+    },
+    {
+      $addFields: {
+        lastWaMessageSentAt: {
+          $let: {
+            vars: { log: { $arrayElemAt: ['$lastWaLogDoc', 0] } },
+            in: '$$log.sentAt',
+          },
+        },
+        isNeverWaSent: {
+          $cond: [{ $ifNull: [{ $arrayElemAt: ['$lastWaLogDoc', 0] }, false] }, 0, 1],
+        },
+        hasPhoneSort: {
+          $cond: [
+            { $gt: [{ $strLenCP: { $ifNull: ['$resolvedPhone', ''] } }, 8] },
+            1,
+            0,
+          ],
+        },
+      },
+    },
+    {
       $facet: {
         metadata: [{ $count: 'totalUsers' }],
         data: [
-          { $sort: { [sortField]: sortDirection, _id: 1 } },
+          {
+            $sort:
+              sortBy === 'lastWaMessageSentAt'
+                ? { hasPhoneSort: -1, isNeverWaSent: -1, lastActivity: -1 }
+                : { [sortField]: sortDirection, _id: 1 },
+          },
           { $skip: skip },
           { $limit: limit },
           {
@@ -287,6 +340,7 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
               monthlyRevenue: 1,
               totalTransactions: 1,
               lastActivity: 1,
+              lastWaMessageSentAt: 1,
               createdAt: 1,
             },
           },
@@ -308,6 +362,7 @@ export function parseUsersQueryParams(searchParams: URLSearchParams): UsersQuery
     'revenue',
     'orders',
     'createdAt',
+    'lastWaMessageSentAt',
   ];
 
   return {

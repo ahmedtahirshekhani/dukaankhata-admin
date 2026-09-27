@@ -7,6 +7,7 @@ import {
   getWhatsAppStatus,
   formatWhatsAppPhone,
   replaceTemplateVariables,
+  parseSpintax,
   SendResult,
 } from '@/lib/whatsapp/baileys-manager';
 
@@ -32,10 +33,33 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { userIds, recipients: inputRecipients, message, delayMs = 1200, forceSend = false } = body;
+    const {
+      userIds,
+      recipients: inputRecipients,
+      message,
+      variants: inputVariants,
+      useRandomDelay = true,
+      minDelayMs = 30000,
+      maxDelayMs = 60000,
+      delayMs = 1200,
+      forceSend = false,
+    } = body;
 
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return NextResponse.json({ error: 'Message content is required.' }, { status: 400 });
+    let variants: string[] = [];
+    if (Array.isArray(inputVariants) && inputVariants.length > 0) {
+      variants = inputVariants
+        .map((v: any) => (typeof v === 'string' ? v.trim() : ''))
+        .filter(Boolean);
+    }
+    if (variants.length === 0 && typeof message === 'string' && message.trim()) {
+      variants = [message.trim()];
+    }
+
+    if (variants.length === 0) {
+      return NextResponse.json(
+        { error: 'Message content or variants are required.' },
+        { status: 400 }
+      );
     }
 
     let finalRecipients: any[] = [];
@@ -81,7 +105,7 @@ export async function POST(request: Request) {
       sentAt: { $gte: todayStart },
     });
 
-    const results: (SendResult & { skipped?: boolean })[] = [];
+    const results: (SendResult & { skipped?: boolean; variantIndex?: number })[] = [];
     let sentCount = 0;
     let failCount = 0;
     let skippedCount = 0;
@@ -90,7 +114,11 @@ export async function POST(request: Request) {
       const user = finalRecipients[i];
       const rawPhone = user.phone || user.whatsapp || (user as any).mobile || '';
       const cleanPhone = formatWhatsAppPhone(rawPhone);
-      const msg = replaceTemplateVariables(message, user);
+
+      // Randomly pick a variant for each recipient
+      const variantIdx = Math.floor(Math.random() * variants.length);
+      const chosenTemplate = variants[variantIdx];
+      const msg = parseSpintax(replaceTemplateVariables(chosenTemplate, user));
 
       if (!cleanPhone) {
         const failedItem: SendResult = {
@@ -134,6 +162,7 @@ export async function POST(request: Request) {
         name: user.name || 'User',
         phone: cleanPhone,
         message: msg,
+        variantIndex: variantIdx + 1,
         status: sendRes.success ? 'sent' : 'failed',
         error: sendRes.error || null,
         sentAt: now,
@@ -141,12 +170,13 @@ export async function POST(request: Request) {
 
       await db.collection(COLLECTIONS.WHATSAPP_LOGS).insertOne(logRecord);
 
-      const logItem: SendResult = {
+      const logItem: SendResult & { variantIndex?: number } = {
         phone: cleanPhone,
         name: user.name || 'User',
         success: sendRes.success,
         error: sendRes.error,
         sentAt: now.toISOString(),
+        variantIndex: variantIdx + 1,
       };
 
       results.push(logItem);
@@ -158,9 +188,17 @@ export async function POST(request: Request) {
         failCount++;
       }
 
-      // Rate limit delay between sequential messages
-      if (i < finalRecipients.length - 1 && delayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      // Rate limit delay between sequential messages (Random gap 30-60s by default)
+      if (i < finalRecipients.length - 1) {
+        let waitMs = delayMs;
+        if (useRandomDelay) {
+          const minD = Math.max(1000, Number(minDelayMs) || 30000);
+          const maxD = Math.max(minD, Number(maxDelayMs) || 60000);
+          waitMs = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+        }
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
       }
     }
 
