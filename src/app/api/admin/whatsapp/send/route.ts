@@ -8,8 +8,14 @@ import {
   formatWhatsAppPhone,
   replaceTemplateVariables,
   parseSpintax,
+  isRealPersonName,
   SendResult,
+  recordMarketLeadWhatsAppStatus,
 } from '@/lib/whatsapp/baileys-manager';
+import { assertCanSendNow, SAFETY } from '@/lib/whatsapp/campaign-engine';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -24,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
 
-    const currentStatus = getWhatsAppStatus();
+    const currentStatus = await getWhatsAppStatus();
     if (currentStatus.state.status !== 'connected') {
       return NextResponse.json(
         { error: 'WhatsApp is not connected. Please scan the QR code first.' },
@@ -92,14 +98,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No valid target users found.' }, { status: 400 });
     }
 
-    // 15-day frequency cooldown cutoff per user
-    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    // Check anti-ban safety limits unless forceSend is active
+    if (!forceSend) {
+      try {
+        await assertCanSendNow();
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 429 });
+      }
+    }
 
-    // Daily quota limit (max 20 messages sent per calendar day)
+    // 15-day frequency cooldown cutoff per user
+    const fifteenDaysAgo = new Date(Date.now() - SAFETY.repeatCooldownDays * 24 * 60 * 60 * 1000);
+
+    // Daily count check
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const DAILY_LIMIT = 20;
     let todaySentCount = await db.collection(COLLECTIONS.WHATSAPP_LOGS).countDocuments({
       status: 'sent',
       sentAt: { $gte: todayStart },
@@ -133,13 +147,13 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check daily quota limit (max 20 messages per day) if forceSend is not enabled
-      if (!forceSend && todaySentCount >= DAILY_LIMIT) {
+      // Check daily quota limit if forceSend is not enabled
+      if (!forceSend && todaySentCount >= SAFETY.dailyLimit) {
         skippedCount++;
         continue;
       }
 
-      // Check 15-day frequency rule per user if forceSend is not enabled
+      // Check frequency rule per user if forceSend is not enabled
       if (!forceSend) {
         const recentLog = await db.collection(COLLECTIONS.WHATSAPP_LOGS).findOne({
           $or: [{ phone: cleanPhone }, { userId: user.id || user._id }],
@@ -153,26 +167,46 @@ export async function POST(request: Request) {
         }
       }
 
-      // Send message via Baileys socket
-      const sendRes = await sendSingleWhatsAppMessage(cleanPhone, msg);
+      // Send message via Baileys socket with human typing simulation and onWhatsApp validation
+      const sendRes = await sendSingleWhatsAppMessage(cleanPhone, msg, {
+        simulateTyping: true,
+        verifyOnWhatsApp: true,
+      });
       const now = new Date();
+
+      const displayName = isRealPersonName(user.name, user.shopName)
+        ? user.name
+        : (user.shopName ? `${user.shopName} wale bhai` : 'Dukan wale bhai');
 
       const logRecord = {
         userId: user.id || user._id || null,
-        name: user.name || 'User',
+        name: displayName,
         phone: cleanPhone,
         message: msg,
         variantIndex: variantIdx + 1,
         status: sendRes.success ? 'sent' : 'failed',
         error: sendRes.error || null,
+        messageId: sendRes.messageId || null,
         sentAt: now,
       };
 
       await db.collection(COLLECTIONS.WHATSAPP_LOGS).insertOne(logRecord);
 
+      // Keep track of whatsapp message sent to market leads
+      await recordMarketLeadWhatsAppStatus(db, {
+        cleanPhone,
+        rawPhone,
+        leadId: user.id || user._id,
+        success: sendRes.success,
+        message: msg,
+        variantIndex: variantIdx + 1,
+        error: sendRes.error,
+        sentAt: now,
+      });
+
       const logItem: SendResult & { variantIndex?: number } = {
         phone: cleanPhone,
-        name: user.name || 'User',
+        name: displayName,
         success: sendRes.success,
         error: sendRes.error,
         sentAt: now.toISOString(),
@@ -209,7 +243,7 @@ export async function POST(request: Request) {
       failCount,
       skippedCount,
       todaySentCount,
-      dailyLimit: DAILY_LIMIT,
+      dailyLimit: SAFETY.dailyLimit,
       results,
     });
   } catch (error: any) {

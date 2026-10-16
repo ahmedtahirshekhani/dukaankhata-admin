@@ -15,6 +15,8 @@ import {
   MessageSquare,
   Menu,
   X,
+  MapPin,
+  Globe,
 } from 'lucide-react';
 
 interface CurrentUser {
@@ -50,6 +52,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { label: 'Executive Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { label: 'Users & Subscriptions', href: '/dashboard/users', icon: Users },
+    { label: 'Potential Leads by Visit', href: '/dashboard/potential-leads', icon: MapPin },
+    { label: 'Potential Leads by Scraping', href: '/dashboard/market-leads', icon: Globe },
     { label: 'WhatsApp Broadcast & QR', href: '/dashboard/whatsapp', icon: MessageSquare },
     { label: 'Deleted Leads', href: '/dashboard/deleted-leads', icon: UserX },
     { label: 'System Configuration', href: '/dashboard/settings', icon: Settings },
@@ -152,6 +156,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
               {pathname === '/dashboard' && 'Executive Analytics'}
               {pathname === '/dashboard/users' && 'Users & Subscriptions Directory'}
+              {pathname === '/dashboard/potential-leads' && 'Potential Leads by Visit'}
+              {pathname === '/dashboard/market-leads' && 'Potential Leads by Scraping'}
               {pathname === '/dashboard/whatsapp' && 'WhatsApp Broadcast & QR Center'}
               {pathname === '/dashboard/deleted-leads' && 'Deleted Leads Archive'}
               {pathname === '/dashboard/settings' && 'System Configuration'}

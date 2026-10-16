@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { getDatabase, COLLECTIONS } from '@/lib/db/mongodb';
-import { getWhatsAppStatus, initWhatsAppSession } from '@/lib/whatsapp/baileys-manager';
-import fs from 'fs';
-import path from 'path';
+import { getWhatsAppStatus } from '@/lib/whatsapp/baileys-manager';
+import { getSafetySnapshot } from '@/lib/whatsapp/campaign-engine';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -19,20 +20,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
 
-    let currentStatus = getWhatsAppStatus();
-
-    // Auto-init session ONCE on server start if creds exist and not already initialized
-    if (
-      currentStatus.state.status === 'disconnected' &&
-      !global._waHasAttemptedAutoInit
-    ) {
-      global._waHasAttemptedAutoInit = true;
-      const credsPath = path.join(process.cwd(), '.whatsapp-auth', 'creds.json');
-      if (fs.existsSync(credsPath)) {
-        await initWhatsAppSession(false);
-        currentStatus = getWhatsAppStatus();
-      }
-    }
+    const [statusResult, safety] = await Promise.all([
+      getWhatsAppStatus(),
+      getSafetySnapshot(),
+    ]);
 
     const db = await getDatabase();
     const dbLogs = await db
@@ -41,14 +32,6 @@ export async function GET() {
       .sort({ sentAt: -1 })
       .limit(100)
       .toArray();
-
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todaySentCount = await db.collection(COLLECTIONS.WHATSAPP_LOGS).countDocuments({
-      status: 'sent',
-      sentAt: { $gte: todayStart },
-    });
 
     const formattedLogs = dbLogs.map((l) => ({
       phone: l.phone,
@@ -60,10 +43,13 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      state: currentStatus.state,
-      todaySentCount,
-      dailyLimit: 20,
-      logs: formattedLogs.length > 0 ? formattedLogs : currentStatus.logs,
+      state: statusResult.state,
+      health: statusResult.health,
+      lastSeenAt: statusResult.lastSeenAt,
+      safety,
+      todaySentCount: safety.todaySentCount,
+      dailyLimit: safety.dailyLimit,
+      logs: formattedLogs,
     });
   } catch (error: any) {
     console.error('Error fetching WhatsApp status:', error);

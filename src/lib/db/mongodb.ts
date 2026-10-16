@@ -53,7 +53,16 @@ export const COLLECTIONS = {
   /** Migrated merchant data (flat, denormalized) — `current_users` collection */
   CURRENT_USERS: 'current_users',
   WHATSAPP_LOGS: 'whatsapp_logs',
+  /** Baileys auth creds + signal keys (replaces local .whatsapp-auth folder, works on Vercel) */
+  WHATSAPP_AUTH: 'whatsapp_auth',
+  /** Persisted WhatsApp connection state (status, QR, phone) shared across serverless instances */
+  WHATSAPP_SESSIONS: 'whatsapp_sessions',
+  /** Persisted broadcast campaigns — advanced one message per tick */
+  WHATSAPP_CAMPAIGNS: 'whatsapp_campaigns',
   LEADS_DELETED: 'leads_deleted',
+  POTENTIAL_LEADS: 'potential_leads',
+  MARKET_LEADS: 'market_leads',
+  LEADS_BY_MARKET: 'leads_by_market',
 } as const;
 
 export function toObjectId(id: string | ObjectId): ObjectId {

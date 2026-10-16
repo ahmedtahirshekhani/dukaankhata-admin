@@ -52,6 +52,8 @@ export async function GET() {
     const totalShops = totalUsers;
 
     const deletedLeadsCount = await db.collection(COLLECTIONS.LEADS_DELETED).countDocuments();
+    const potentialLeadsCount = await db.collection(COLLECTIONS.POTENTIAL_LEADS).countDocuments();
+    const marketLeadsCount = await db.collection(COLLECTIONS.MARKET_LEADS).countDocuments();
 
     return NextResponse.json({
       success: true,
@@ -65,6 +67,8 @@ export async function GET() {
         trialSubscriptions,
         waitlistCount: 0,
         deletedLeadsCount,
+        potentialLeadsCount,
+        marketLeadsCount,
       },
     });
   } catch (error: any) {

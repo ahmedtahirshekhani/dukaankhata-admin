@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
-import { initWhatsAppSession, getWhatsAppStatus } from '@/lib/whatsapp/baileys-manager';
+import { connectWhatsApp, getWhatsAppStatus } from '@/lib/whatsapp/baileys-manager';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Allow sufficient time for Baileys QR generation and pairing handshake
 
 export async function POST() {
   try {
@@ -16,12 +19,21 @@ export async function POST() {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
 
-    await initWhatsAppSession(true);
-    const statusObj = getWhatsAppStatus();
+    const current = await getWhatsAppStatus();
+    if (current.state.status === 'connected') {
+      return NextResponse.json({
+        success: true,
+        state: current.state,
+        needsRetry: false,
+      });
+    }
+
+    const connectResult = await connectWhatsApp(45_000);
 
     return NextResponse.json({
       success: true,
-      ...statusObj,
+      state: connectResult.state,
+      needsRetry: connectResult.needsRetry,
     });
   } catch (error: any) {
     console.error('Error connecting WhatsApp:', error);

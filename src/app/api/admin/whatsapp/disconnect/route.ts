@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth';
 import { disconnectWhatsAppSession, getWhatsAppStatus } from '@/lib/whatsapp/baileys-manager';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     const cookieStore = await cookies();
@@ -16,12 +18,11 @@ export async function POST() {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
 
-    await disconnectWhatsAppSession();
-    const statusObj = getWhatsAppStatus();
+    const state = await disconnectWhatsAppSession();
 
     return NextResponse.json({
       success: true,
-      ...statusObj,
+      state,
     });
   } catch (error: any) {
     console.error('Error disconnecting WhatsApp:', error);
