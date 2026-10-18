@@ -80,6 +80,7 @@ export async function POST(request: Request) {
       variants,
       categoryVariants,
       forceSend = false,
+      bypassAllRules = false,
       minDelaySec = 30,
       maxDelaySec = 60,
       batchSize = 10,
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
       variants,
       categoryVariants,
       forceSend,
+      bypassAllRules,
       minDelaySec,
       maxDelaySec,
       batchSize,
@@ -131,7 +133,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Invalid action. Must be pause, resume, or cancel.' }, { status: 400 });
     }
 
-    const progress = await setCampaignState(action, body.campaignId);
+    const progress = await setCampaignState(action, body.campaignId, {
+      bypassAllRules: typeof body.bypassAllRules === 'boolean' ? body.bypassAllRules : undefined,
+    });
 
     return NextResponse.json({
       success: true,

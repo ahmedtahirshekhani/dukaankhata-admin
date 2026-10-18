@@ -49,7 +49,10 @@ export async function POST(request: Request) {
       maxDelayMs = 60000,
       delayMs = 1200,
       forceSend = false,
+      bypassAllRules = false,
     } = body;
+
+    const isForce = Boolean(forceSend || bypassAllRules);
 
     let variants: string[] = [];
     if (Array.isArray(inputVariants) && inputVariants.length > 0) {
@@ -98,10 +101,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No valid target users found.' }, { status: 400 });
     }
 
-    // Check anti-ban safety limits unless forceSend is active
-    if (!forceSend) {
+    // Check anti-ban safety limits unless forceSend/bypassAllRules is active
+    if (!isForce) {
       try {
-        await assertCanSendNow();
+        await assertCanSendNow(bypassAllRules);
       } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 429 });
       }
@@ -147,14 +150,14 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check daily quota limit if forceSend is not enabled
-      if (!forceSend && todaySentCount >= SAFETY.dailyLimit) {
+      // Check daily quota limit if forceSend/bypassAllRules is not enabled
+      if (!isForce && todaySentCount >= SAFETY.dailyLimit) {
         skippedCount++;
         continue;
       }
 
-      // Check frequency rule per user if forceSend is not enabled
-      if (!forceSend) {
+      // Check frequency rule per user if forceSend/bypassAllRules is not enabled
+      if (!isForce) {
         const recentLog = await db.collection(COLLECTIONS.WHATSAPP_LOGS).findOne({
           $or: [{ phone: cleanPhone }, { userId: user.id || user._id }],
           status: 'sent',

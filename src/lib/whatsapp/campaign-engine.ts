@@ -131,6 +131,7 @@ export interface CampaignProgress {
   resultType: 'success' | 'error' | null;
   startedAt: string | null;
   completedAt: string | null;
+  bypassAllRules?: boolean;
 }
 
 export interface SafetySnapshot {
@@ -198,6 +199,7 @@ function toProgress(c: any | null): CampaignProgress {
     resultType: c.resultType || null,
     startedAt: c.createdAt ? new Date(c.createdAt).toISOString() : null,
     completedAt: c.completedAt ? new Date(c.completedAt).toISOString() : null,
+    bypassAllRules: Boolean(c.bypassAllRules),
   };
 }
 
@@ -254,7 +256,8 @@ async function checkSafetyGates(): Promise<{ until: Date; reason: string } | nul
 }
 
 /** Throws if today's quota is used up — used by single test sends too. */
-export async function assertCanSendNow(): Promise<void> {
+export async function assertCanSendNow(bypassAllRules = false): Promise<void> {
+  if (bypassAllRules) return;
   const gate = await checkSafetyGates();
   if (gate && !gate.reason.startsWith('Outside')) throw new Error(gate.reason);
 }
@@ -314,6 +317,7 @@ export async function createCampaign(params: {
   variants: string[];
   categoryVariants?: Record<string, string[]>;
   forceSend?: boolean;
+  bypassAllRules?: boolean;
   minDelaySec?: number;
   maxDelaySec?: number;
   batchSize?: number;
@@ -375,10 +379,19 @@ export async function createCampaign(params: {
     throw Object.assign(new Error('Maximum 1000 recipients per campaign.'), { status: 400 });
   }
 
-  const minDelaySec = Math.max(SAFETY.minGapSecFloor, Number(params.minDelaySec) || 30);
-  const maxDelaySec = Math.max(minDelaySec, Number(params.maxDelaySec) || 60);
-  const batchCooldownMinSec = Math.max(SAFETY.minBatchCooldownSecFloor, Number(params.batchCooldownMinSec) || 300);
-  const batchCooldownMaxSec = Math.max(batchCooldownMinSec, Number(params.batchCooldownMaxSec) || 600);
+  const bypassAllRules = Boolean(params.bypassAllRules);
+  const minDelaySec = bypassAllRules
+    ? Math.max(1, Number(params.minDelaySec) || 5)
+    : Math.max(SAFETY.minGapSecFloor, Number(params.minDelaySec) || 30);
+  const maxDelaySec = bypassAllRules
+    ? Math.max(minDelaySec, Number(params.maxDelaySec) || 10)
+    : Math.max(minDelaySec, Number(params.maxDelaySec) || 60);
+  const batchCooldownMinSec = bypassAllRules
+    ? Math.max(1, Number(params.batchCooldownMinSec) || 5)
+    : Math.max(SAFETY.minBatchCooldownSecFloor, Number(params.batchCooldownMinSec) || 300);
+  const batchCooldownMaxSec = bypassAllRules
+    ? Math.max(batchCooldownMinSec, Number(params.batchCooldownMaxSec) || 10)
+    : Math.max(batchCooldownMinSec, Number(params.batchCooldownMaxSec) || 600);
   const batchSize = Math.min(SAFETY.maxBatchSize, Math.max(1, Number(params.batchSize) || 10));
 
   const now = new Date();
@@ -387,7 +400,8 @@ export async function createCampaign(params: {
     status: 'running' as CampaignStatus,
     variants,
     categoryVariants,
-    forceSend: Boolean(params.forceSend),
+    forceSend: Boolean(params.forceSend) || bypassAllRules,
+    bypassAllRules,
     minDelaySec,
     maxDelaySec,
     batchSize,
@@ -422,7 +436,11 @@ export async function createCampaign(params: {
   return toProgress({ ...doc, _id: res.insertedId });
 }
 
-export async function setCampaignState(action: 'pause' | 'resume' | 'cancel', id?: string) {
+export async function setCampaignState(
+  action: 'pause' | 'resume' | 'cancel',
+  id?: string,
+  opts?: { bypassAllRules?: boolean }
+) {
   const col = await campaignsCol();
   const filter: any = id && ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { status: { $in: ['running', 'paused'] } };
   const c = await col.findOne(filter, { sort: { createdAt: -1 }, projection: { recipients: 0 } });
@@ -432,18 +450,25 @@ export async function setCampaignState(action: 'pause' | 'resume' | 'cancel', id
   if (action === 'pause' && c.status === 'running') {
     await col.updateOne({ _id: c._id }, { $set: { status: 'paused', pauseReason: 'Paused by admin.', updatedAt: now } });
   } else if (action === 'resume' && c.status === 'paused') {
-    // Resume never fires instantly — always wait a normal gap first.
-    const gap = rand(c.minDelaySec || 30, c.maxDelaySec || 60);
-    await col.updateOne(
-      { _id: c._id },
-      {
-        $set: {
-          status: 'running', pauseReason: null, consecutiveFailures: 0, lockUntil: null,
-          nextSendAt: new Date(now.getTime() + Math.min(gap, 20) * 1000),
-          isBatchCooldown: false, waitReason: 'Resuming…', updatedAt: now,
-        },
+    const isBypass = opts?.bypassAllRules !== undefined ? opts.bypassAllRules : Boolean(c.bypassAllRules);
+    const gap = isBypass ? 2 : rand(c.minDelaySec || 30, c.maxDelaySec || 60);
+    const updateSet: Record<string, any> = {
+      status: 'running',
+      pauseReason: null,
+      consecutiveFailures: 0,
+      lockUntil: null,
+      nextSendAt: new Date(now.getTime() + (isBypass ? 2000 : Math.min(gap, 20) * 1000)),
+      isBatchCooldown: false,
+      waitReason: 'Resuming…',
+      updatedAt: now,
+    };
+    if (opts?.bypassAllRules !== undefined) {
+      updateSet.bypassAllRules = opts.bypassAllRules;
+      if (opts.bypassAllRules) {
+        updateSet.forceSend = true;
       }
-    );
+    }
+    await col.updateOne({ _id: c._id }, { $set: updateSet });
   } else if (action === 'cancel' && (c.status === 'running' || c.status === 'paused')) {
     await col.updateOne(
       { _id: c._id },
@@ -497,10 +522,12 @@ export async function tickCampaign(): Promise<CampaignProgress> {
   if (camp.nextSendAt && new Date(camp.nextSendAt) > now) return toProgress(camp);
   if (camp.lockUntil && new Date(camp.lockUntil) > now) return toProgress(camp);
 
-  const gate = await checkSafetyGates();
-  if (gate) {
-    await col.updateOne({ _id: camp._id }, { $set: { nextSendAt: gate.until, waitReason: gate.reason, isBatchCooldown: false, updatedAt: now } });
-    return toProgress({ ...camp, nextSendAt: gate.until, waitReason: gate.reason, isBatchCooldown: false });
+  if (!camp.bypassAllRules) {
+    const gate = await checkSafetyGates();
+    if (gate) {
+      await col.updateOne({ _id: camp._id }, { $set: { nextSendAt: gate.until, waitReason: gate.reason, isBatchCooldown: false, updatedAt: now } });
+      return toProgress({ ...camp, nextSendAt: gate.until, waitReason: gate.reason, isBatchCooldown: false });
+    }
   }
 
   // Atomic lock — only one tick may send at a time across all instances.
@@ -552,7 +579,7 @@ async function processNextRecipient(camp: any) {
       idx++;
       continue;
     }
-    if (!camp.forceSend) {
+    if (!camp.forceSend && !camp.bypassAllRules) {
       const recent = await logs.findOne({
         $or: [{ phone: clean }, ...(r.id ? [{ userId: r.id }] : [])],
         status: 'sent',
@@ -597,25 +624,29 @@ async function processNextRecipient(camp: any) {
   let outcome: SendOutcome & { healthBlock?: string };
   try {
     outcome = await withWhatsAppSocket(async (sock) => {
-      const health = await refreshAccountHealth(sock);
-      if (health.reachoutLocked) {
-        return {
-          success: false,
-          healthBlock: `WhatsApp has temporarily restricted this number from messaging new contacts${
-            health.reachoutLockEndsAt ? ` until ${formatPkt(new Date(health.reachoutLockEndsAt))}` : ''
-          }. Campaign paused — do NOT resume before then.`,
-        };
-      }
-      if (
-        health.newChatQuotaTotal !== null && health.newChatQuotaUsed !== null &&
-        health.newChatQuotaUsed >= health.newChatQuotaTotal
-      ) {
-        return {
-          success: false,
-          healthBlock: `WhatsApp new-chat quota used up (${health.newChatQuotaUsed}/${health.newChatQuotaTotal})${
-            health.newChatQuotaResetsAt ? `, resets ${formatPkt(new Date(health.newChatQuotaResetsAt))}` : ''
-          }. Campaign paused.`,
-        };
+      if (!camp.bypassAllRules) {
+        const health = await refreshAccountHealth(sock);
+        if (health.reachoutLocked) {
+          return {
+            success: false,
+            healthBlock: `WhatsApp has temporarily restricted this number from messaging new contacts${
+              health.reachoutLockEndsAt ? ` until ${formatPkt(new Date(health.reachoutLockEndsAt))}` : ''
+            }. Campaign paused — do NOT resume before then.`,
+          };
+        }
+        if (
+          health.newChatQuotaTotal !== null &&
+          health.newChatQuotaUsed !== null &&
+          health.newChatQuotaTotal > 0 &&
+          health.newChatQuotaUsed >= health.newChatQuotaTotal
+        ) {
+          return {
+            success: false,
+            healthBlock: `WhatsApp new-chat quota used up (${health.newChatQuotaUsed}/${health.newChatQuotaTotal})${
+              health.newChatQuotaResetsAt ? `, resets ${formatPkt(new Date(health.newChatQuotaResetsAt))}` : ''
+            }. Campaign paused.`,
+          };
+        }
       }
       return sendTextOnSocket(sock, r.phone, message, { simulateTyping: true, verifyOnWhatsApp: true });
     });
@@ -671,7 +702,7 @@ async function processNextRecipient(camp: any) {
     const sentSinceBreak = (camp.sentSinceBreak || 0) + 1;
     const batchSize = camp.batchSize || 10;
     if (idx >= recipients.length) return finish();
-    if (sentSinceBreak >= batchSize) {
+    if (!camp.bypassAllRules && sentSinceBreak >= batchSize) {
       const sec = rand(camp.batchCooldownMinSec, camp.batchCooldownMaxSec);
       const batchNum = Math.floor(((camp.sent || 0) + 1) / batchSize);
       Object.assign(set, {
@@ -685,7 +716,7 @@ async function processNextRecipient(camp: any) {
     } else {
       const sec = rand(camp.minDelaySec, camp.maxDelaySec);
       Object.assign(set, {
-        sentSinceBreak,
+        sentSinceBreak: camp.bypassAllRules ? 0 : sentSinceBreak,
         isBatchCooldown: false,
         batchStatusText: '',
         nextSendAt: new Date(now.getTime() + sec * 1000),

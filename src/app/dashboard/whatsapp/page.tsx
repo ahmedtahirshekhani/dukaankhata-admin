@@ -510,6 +510,7 @@ export default function WhatsAppAdminPage() {
   const [maxDelaySec, setMaxDelaySec] = useState<number>(60); // 60s
   const [recipientLimit, setRecipientLimit] = useState<number>(20); // 20 (2 batches of 10) by default
   const [forceSend, setForceSend] = useState(false);
+  const [bypassAllRules, setBypassAllRules] = useState(false);
 
   // Live Dispatch Progress State
   const [sending, setSending] = useState(false);
@@ -714,6 +715,9 @@ export default function WhatsAppAdminPage() {
           setIsPaused(Boolean(p.paused));
           setPauseReason(p.pauseReason || null);
           setWaitReason(p.waitReason || null);
+          if (p.bypassAllRules) {
+            setBypassAllRules(true);
+          }
           setBatchCooldownInfo({
             isBatchCooldown: !!p.isBatchCooldown,
             batchCooldownTotalSec: p.batchCooldownTotalSec || 0,
@@ -768,6 +772,9 @@ export default function WhatsAppAdminPage() {
           setIsPaused(Boolean(p.paused));
           setPauseReason(p.pauseReason || null);
           setWaitReason(p.waitReason || null);
+          if (p.bypassAllRules) {
+            setBypassAllRules(true);
+          }
           setSendProgress({ total: p.total, sent: p.sent, fail: p.failed });
           setCountdownSec(p.countdownSec);
           setBatchCooldownInfo({
@@ -1096,12 +1103,13 @@ export default function WhatsAppAdminPage() {
     }
   };
 
-  const handleResumeBroadcast = async () => {
+  const handleResumeBroadcast = async (overrideBypass?: boolean) => {
     try {
+      const isBypass = typeof overrideBypass === 'boolean' ? overrideBypass : bypassAllRules;
       await fetch('/api/admin/whatsapp/broadcast', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'resume' }),
+        body: JSON.stringify({ action: 'resume', bypassAllRules: isBypass }),
       });
       setIsPaused(false);
     } catch (err) {
@@ -1192,7 +1200,8 @@ export default function WhatsAppAdminPage() {
           recipients: validRecipientsPayload,
           variants: activeVariants,
           categoryVariants: autoMatchCategory ? categoryVariantsMap : undefined,
-          forceSend,
+          forceSend: forceSend || bypassAllRules,
+          bypassAllRules,
           minDelaySec,
           maxDelaySec,
           batchSize: 10,
@@ -2369,17 +2378,40 @@ export default function WhatsAppAdminPage() {
                     <> Single batch of {totalRecipientsCount} messages (no batch pause required).</>
                   )}
                 </p>
-                <div className="pt-1 flex items-center justify-between">
-                  <label className="flex items-center space-x-2 font-bold cursor-pointer text-slate-900 select-none">
+                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-emerald-200/60 mt-2">
+                  <label className="flex items-center space-x-2 font-bold cursor-pointer text-slate-800 select-none text-xs">
                     <input
                       type="checkbox"
-                      checked={forceSend}
+                      checked={forceSend || bypassAllRules}
+                      disabled={bypassAllRules}
                       onChange={(e) => setForceSend(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                      className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                     />
                     <span>Bypass 15-day message frequency protection</span>
                   </label>
+
+                  <label className="flex items-center space-x-2 font-black cursor-pointer text-rose-900 select-none text-xs bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1.5 rounded-lg transition">
+                    <input
+                      type="checkbox"
+                      checked={bypassAllRules}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setBypassAllRules(val);
+                        if (val) setForceSend(true);
+                      }}
+                      className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span className="flex items-center space-x-1">
+                      <span>⚡ Bypass all anti-ban rules & safety limits</span>
+                      <span className="text-[10px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Unrestricted</span>
+                    </span>
+                  </label>
                 </div>
+                {bypassAllRules && (
+                  <p className="text-[11px] text-rose-700 bg-rose-100/70 p-2 rounded-lg border border-rose-300 font-medium">
+                    ⚠️ <strong>Bypass Mode Active:</strong> Safe hours (9 AM–9 PM PKT), daily limits (50/day), hourly limits (20/hr), 15-day recipient protections, WhatsApp new-chat quota blocks, and batch resting intervals will all be bypassed.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -2445,7 +2477,7 @@ export default function WhatsAppAdminPage() {
                 {isPaused ? (
                   /* Paused Banner */
                   <div className="p-5 bg-amber-50 border-2 border-amber-500 rounded-2xl space-y-4 shadow-md">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                       <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-md">
                           <Ban className="w-5 h-5" />
@@ -2465,17 +2497,17 @@ export default function WhatsAppAdminPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-2 shrink-0">
+                      <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
                         <button
-                          onClick={handleResumeBroadcast}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5 shadow-xs"
+                          onClick={() => handleResumeBroadcast(bypassAllRules)}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" />
                           <span>Resume Broadcast</span>
                         </button>
                         <button
                           onClick={handleStopSending}
-                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5 shadow-xs"
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
                         >
                           <StopCircle className="w-3.5 h-3.5" />
                           <span>Cancel</span>
@@ -2483,9 +2515,20 @@ export default function WhatsAppAdminPage() {
                       </div>
                     </div>
 
-                    <p className="text-xs text-amber-800 bg-amber-100/60 p-2.5 rounded-lg border border-amber-200/80">
-                      You can safely click <strong>Resume Broadcast</strong> when ready. All recipient progress is saved in MongoDB.
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-amber-200 text-xs">
+                      <label className="flex items-center space-x-2 font-bold text-amber-950 cursor-pointer select-none bg-amber-100/80 px-2.5 py-1.5 rounded-lg border border-amber-300">
+                        <input
+                          type="checkbox"
+                          checked={bypassAllRules}
+                          onChange={(e) => setBypassAllRules(e.target.checked)}
+                          className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>⚡ Bypass all rules & safety restrictions on resume</span>
+                      </label>
+                      <span className="text-[11px] text-amber-800">
+                        All recipient progress is preserved in MongoDB.
+                      </span>
+                    </div>
                   </div>
                 ) : batchCooldownInfo.isBatchCooldown ? (
                   /* Anti-Ban Batch Cooldown Alert Banner */
