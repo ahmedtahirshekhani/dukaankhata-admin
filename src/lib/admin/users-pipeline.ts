@@ -80,6 +80,7 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
       { email: regex },
       { phone: regex },
       { shopName: regex },
+      { 'comments.text': regex },
     ];
   }
 
@@ -202,6 +203,7 @@ export function buildUsersListPipeline(params: UsersQueryParams, now: Date) {
               lastActivity: 1,
               lastWaMessageSentAt: 1,
               createdAt: 1,
+              comments: { $ifNull: ['$comments', []] },
             },
           },
         ],

@@ -24,6 +24,9 @@ import {
   AlertTriangle,
   AlertCircle,
   MessageSquare,
+  MessageCircle,
+  Send,
+  X,
 } from 'lucide-react';
 import {
   canDeleteMerchant,
@@ -32,7 +35,14 @@ import {
   PRO_YEARLY_AMOUNT,
   type BillingCycle,
 } from '@/lib/subscriptions';
-import { formatDisplayDate, formatDisplayDateTime } from '@/lib/format-date';
+import { formatDisplayDate, formatDisplayDateTime, formatTimeAgo } from '@/lib/format-date';
+
+export interface UserComment {
+  _id: string;
+  text: string;
+  createdAt: string;
+  author?: string;
+}
 
 interface User {
   _id: string;
@@ -53,6 +63,7 @@ interface User {
   totalTransactions: number;
   lastActivity?: string;
   createdAt: string;
+  comments?: UserComment[];
 }
 
 type SortField = 'lastActivity' | 'name' | 'shopName' | 'expiry' | 'revenue' | 'orders' | 'createdAt';
@@ -96,6 +107,13 @@ export default function UsersManagementPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+
+  // Comments / Lead Notes Modal State
+  const [commentsUser, setCommentsUser] = useState<User | null>(null);
+  const [commentInput, setCommentInput] = useState('');
+  const [savingComment, setSavingComment] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
 
   const [actionSuccess, setActionSuccess] = useState('');
 
@@ -294,6 +312,79 @@ export default function UsersManagementPage() {
       alert('An unexpected error occurred while deleting merchants.');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Open comments modal for user lead
+  const handleOpenComments = (user: User) => {
+    setCommentsUser(user);
+    setCommentInput('');
+    setCommentError(null);
+  };
+
+  // Add new comment with datetime stamp
+  const handleAddComment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!commentsUser || !commentInput.trim() || savingComment) return;
+
+    setSavingComment(true);
+    setCommentError(null);
+
+    try {
+      const res = await fetch(`/api/admin/users/${commentsUser._id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: commentInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.success && data.comment) {
+        const updatedComments = [...(commentsUser.comments || []), data.comment];
+        const updatedUser = { ...commentsUser, comments: updatedComments };
+
+        setCommentsUser(updatedUser);
+        setUsers((prev) =>
+          prev.map((u) => (u._id === commentsUser._id ? updatedUser : u))
+        );
+        setCommentInput('');
+      } else {
+        setCommentError(data.error || 'Failed to save comment');
+      }
+    } catch (err: any) {
+      console.error('Error adding comment:', err);
+      setCommentError(err.message || 'Network error saving comment');
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  // Delete a comment
+  const handleDeleteComment = async (commentId: string) => {
+    if (!commentsUser || deletingCommentId) return;
+
+    setDeletingCommentId(commentId);
+    try {
+      const res = await fetch(
+        `/api/admin/users/${commentsUser._id}/comments?commentId=${commentId}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        const updatedComments = (commentsUser.comments || []).filter(
+          (c) => c._id !== commentId
+        );
+        const updatedUser = { ...commentsUser, comments: updatedComments };
+
+        setCommentsUser(updatedUser);
+        setUsers((prev) =>
+          prev.map((u) => (u._id === commentsUser._id ? updatedUser : u))
+        );
+      } else {
+        alert(data.error || 'Failed to delete comment');
+      }
+    } catch (err) {
+      console.error('Error deleting comment:', err);
+    } finally {
+      setDeletingCommentId(null);
     }
   };
 
@@ -663,12 +754,12 @@ export default function UsersManagementPage() {
                       {/* Name & Email */}
                       <td className="py-3.5 px-5">
                         <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center font-bold text-xs">
+                          <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center font-bold text-xs shrink-0">
                             {user.name.charAt(0).toUpperCase()}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <div className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
-                              <span>{user.name}</span>
+                              <span className="truncate">{user.name}</span>
                               {user.role === 'admin' && (
                                 <span className="px-1.5 py-0.5 text-[9px] bg-sky-100 text-sky-700 border border-sky-200 rounded font-semibold uppercase">
                                   Admin
@@ -677,6 +768,30 @@ export default function UsersManagementPage() {
                             </div>
                             <div className="text-slate-500 text-[11px] mt-0.5">{user.email}</div>
                             <div className="text-slate-400 font-mono text-[10px] mt-0.5">ID: {user._id}</div>
+
+                            {/* Lead Comment Snippet / Trigger */}
+                            {user.comments && user.comments.length > 0 ? (
+                              <button
+                                onClick={() => handleOpenComments(user)}
+                                className="mt-1.5 flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 text-[10px] font-medium transition text-left max-w-[240px] group shadow-2xs"
+                                title={`Click to view all ${user.comments.length} comment${user.comments.length === 1 ? '' : 's'}`}
+                              >
+                                <MessageCircle className="w-3 h-3 text-amber-600 shrink-0 group-hover:scale-110 transition-transform" />
+                                <span className="font-bold text-amber-800 shrink-0">{user.comments.length}</span>
+                                <span className="truncate text-slate-600">
+                                  • {user.comments[user.comments.length - 1].text}
+                                </span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleOpenComments(user)}
+                                className="mt-1 inline-flex items-center space-x-1 text-[10px] text-slate-400 hover:text-amber-700 hover:underline transition"
+                                title="Add comment / note for this user lead"
+                              >
+                                <MessageCircle className="w-2.5 h-2.5 text-slate-400" />
+                                <span>+ Add note</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -802,6 +917,28 @@ export default function UsersManagementPage() {
                           >
                             <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
                           </Link>
+
+                          {/* COMMENTS / LEAD NOTES BUTTON */}
+                          <button
+                            onClick={() => handleOpenComments(user)}
+                            title={
+                              user.comments && user.comments.length > 0
+                                ? `View / Add Lead Notes (${user.comments.length})`
+                                : 'Add Comment / Lead Note'
+                            }
+                            className={`p-1 rounded-lg border transition flex items-center space-x-1 ${
+                              user.comments && user.comments.length > 0
+                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+                                : 'bg-white hover:bg-slate-50 text-slate-400 hover:text-slate-600 border-slate-200'
+                            }`}
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-amber-600" />
+                            {user.comments && user.comments.length > 0 && (
+                              <span className="text-[10px] font-bold px-1 rounded-full bg-amber-200/80 text-amber-900">
+                                {user.comments.length}
+                              </span>
+                            )}
+                          </button>
 
                           {/* RENEW BUTTON */}
                           <button
@@ -1085,6 +1222,151 @@ export default function UsersManagementPage() {
                 <span>{deleting ? 'Purging Data...' : 'Delete Permanently'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* COMMENTS / LEAD NOTES MODAL */}
+      {commentsUser && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl border border-amber-200/80 shrink-0">
+                  <MessageCircle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">
+                    Lead Notes & Comments
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                    <span className="font-bold text-slate-800">{commentsUser.name}</span>
+                    <span>•</span>
+                    <span className="text-slate-600">{commentsUser.shopName || 'No Shop'}</span>
+                    {commentsUser.phone && (
+                      <>
+                        <span>•</span>
+                        <span className="font-mono text-slate-700">{commentsUser.phone}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setCommentsUser(null)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Comments List (Scrollable) */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-[140px] max-h-[360px]">
+              {!commentsUser.comments || commentsUser.comments.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 space-y-2">
+                  <MessageCircle className="w-8 h-8 mx-auto text-amber-300 stroke-[1.5]" />
+                  <p className="text-xs font-semibold text-slate-700">No comments yet for this user lead.</p>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                    Record phone call notes, renewal promises, customer requirements, or followup reminders below.
+                  </p>
+                </div>
+              ) : (
+                commentsUser.comments.map((c, index) => (
+                  <div
+                    key={c._id || index}
+                    className="p-3.5 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl space-y-1.5 transition text-xs relative group"
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                          {c.author || 'Admin'}
+                        </span>
+                        <span className="text-slate-500 flex items-center space-x-1">
+                          <Clock className="w-3 h-3 inline text-slate-400" />
+                          <span>{formatDisplayDateTime(c.createdAt)}</span>
+                        </span>
+                        <span className="text-slate-400 text-[10px]">
+                          ({formatTimeAgo(c.createdAt)})
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteComment(c._id)}
+                        disabled={deletingCommentId === c._id}
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-white transition"
+                        title="Delete this comment"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-slate-800 whitespace-pre-wrap leading-relaxed text-xs">
+                      {c.text}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Error Message */}
+            {commentError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{commentError}</span>
+              </div>
+            )}
+
+            {/* Add New Comment Box */}
+            <form onSubmit={handleAddComment} className="border-t border-slate-100 pt-3 space-y-2">
+              <div className="relative">
+                <textarea
+                  value={commentInput}
+                  onChange={(e) => setCommentInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleAddComment();
+                    }
+                  }}
+                  rows={3}
+                  placeholder="Type a comment or note about this user lead (e.g. Spoke on phone, customer requested demo, will renew on Monday)..."
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs resize-none"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">
+                  Press <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[10px] font-mono">Cmd + Enter</kbd> to save
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setCommentsUser(null)}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!commentInput.trim() || savingComment}
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingComment ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Save Comment</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       )}
